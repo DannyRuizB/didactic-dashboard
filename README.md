@@ -1,8 +1,24 @@
 # didactic-dashboard
 
-Simple self-hosted monitoring dashboard. Add a host by IP and watch CPU, RAM, disk, services and alerts in real time. Docker-ready, built for learning.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node](https://img.shields.io/badge/node-20-3c873a.svg)
+![Docker](https://img.shields.io/badge/docker-ready-2496ed.svg)
+![Status](https://img.shields.io/badge/status-WIP-orange.svg)
+![Last commit](https://img.shields.io/github/last-commit/DannyRuizB/didactic-dashboard)
+
+Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
 > Work in progress — v0.1 released, more features coming.
+
+## Screenshots
+
+Dark theme:
+
+![Dark theme](docs/screenshot-dark.png)
+
+Light theme:
+
+![Light theme](docs/screenshot-light.png)
 
 ## Quick start
 
@@ -26,7 +42,7 @@ Data persists in `./data/dashboard.db` (SQLite).
 - Measured latency in ms
 - SQLite persistence (hosts + ping history)
 - One-command Docker Compose deploy
-- Dark "hacker" theme
+- Warm amber theme with light / dark toggle (persists in localStorage)
 
 ### Why two check modes?
 Some networks (VPNs, cloud firewalls) drop ICMP but allow TCP. Adding a
