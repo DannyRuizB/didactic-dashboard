@@ -9,13 +9,7 @@ const PING_INTERVAL  = parseInt(process.env.PING_INTERVAL || '10000', 10);
 const DEMO_MODE      = process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === '1';
 const DEMO_MAX_HOSTS = parseInt(process.env.DEMO_MAX_HOSTS || '15', 10);
 
-const DEMO_SEEDS = [
-  { ip: 'google.com',     name: 'Google',        port: 443, check_type: 'tcp' },
-  { ip: 'cloudflare.com', name: 'Cloudflare',    port: 443, check_type: 'tcp' },
-  { ip: 'github.com',     name: 'GitHub',        port: 443, check_type: 'tcp' },
-  { ip: 'hub.docker.com', name: 'Docker Hub',    port: 443, check_type: 'tcp' },
-  { ip: 'example.com',    name: 'example.com',   port: 80,  check_type: 'tcp' },
-];
+const DEMO_SEEDS = [];
 
 const app = express();
 app.use(express.json());
