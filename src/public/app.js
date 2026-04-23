@@ -118,5 +118,19 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
+const themeToggle = document.getElementById('theme-toggle');
+function renderThemeButton() {
+  const current = document.documentElement.dataset.theme || 'dark';
+  themeToggle.textContent = `theme: ${current}`;
+}
+themeToggle.addEventListener('click', () => {
+  const current = document.documentElement.dataset.theme || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  localStorage.setItem('didactic-theme', next);
+  renderThemeButton();
+});
+renderThemeButton();
+
 loadHosts();
 setInterval(loadHosts, 5000);

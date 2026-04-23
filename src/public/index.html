@@ -4,11 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>didactic-dashboard</title>
+  <script>
+    (function () {
+      var t = localStorage.getItem('didactic-theme') || 'dark';
+      document.documentElement.dataset.theme = t;
+    })();
+  </script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="page-header">
-    <h1>&gt; didactic-dashboard</h1>
+    <div class="title-row">
+      <h1>&gt; didactic-dashboard</h1>
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">theme: dark</button>
+    </div>
     <p class="sub">simple network monitor &middot; v0.1</p>
   </header>
 
