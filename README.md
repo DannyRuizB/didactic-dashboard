@@ -2,7 +2,9 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-20-3c873a.svg)
-![Docker](https://img.shields.io/badge/docker-ready-2496ed.svg)
+[![Docker Hub](https://img.shields.io/docker/v/dannyruizb/didactic-dashboard?label=docker%20hub&logo=docker&sort=semver)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
+[![Docker Pulls](https://img.shields.io/docker/pulls/dannyruizb/didactic-dashboard?logo=docker)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
+![Image size](https://img.shields.io/docker/image-size/dannyruizb/didactic-dashboard/latest)
 ![Status](https://img.shields.io/badge/status-WIP-orange.svg)
 ![Last commit](https://img.shields.io/github/last-commit/DannyRuizB/didactic-dashboard)
 
@@ -22,7 +24,16 @@ Light theme:
 
 ## Quick start
 
-Requires Docker and Docker Compose.
+### Option A — one-liner from Docker Hub (fastest)
+
+```bash
+docker run -d --name didactic-dashboard \
+  -p 3000:3000 \
+  -v didactic-data:/app/data \
+  dannyruizb/didactic-dashboard:latest
+```
+
+### Option B — clone and build
 
 ```bash
 git clone https://github.com/DannyRuizB/didactic-dashboard.git
@@ -32,7 +43,7 @@ docker compose up -d --build
 
 Open http://localhost:3000 and start adding hosts by IP or hostname.
 
-Data persists in `./data/dashboard.db` (SQLite).
+Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` (Option B).
 
 ## Features
 
