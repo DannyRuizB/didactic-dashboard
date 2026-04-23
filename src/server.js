@@ -101,14 +101,21 @@ app.delete('/api/hosts/:id', (req, res) => {
 });
 
 // ICMP check via the system `ping` binary (1 packet, 2 s timeout).
+// Uses Promise.race so we always resolve within ~4 s — some sandboxed
+// environments (e.g. Render free tier) drop ICMP packets without returning
+// an error, which would otherwise leave the check hanging forever.
 function icmpCheck(target) {
-  return new Promise((resolve) => {
+  const check = new Promise((resolve) => {
     execFile('ping', ['-c', '1', '-W', '2', target], { timeout: 3000 }, (err, stdout) => {
       if (err) return resolve({ ok: false, latency: null });
       const m = stdout.match(/time[=<]([\d.]+)\s*ms/);
       resolve({ ok: true, latency: m ? parseFloat(m[1]) : null });
     });
   });
+  const fallback = new Promise((resolve) => {
+    setTimeout(() => resolve({ ok: false, latency: null }), 4000);
+  });
+  return Promise.race([check, fallback]);
 }
 
 // TCP connect check — useful when ICMP is blocked (VPNs, firewalls).
