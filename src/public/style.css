@@ -259,9 +259,9 @@ body {
   display: block;
   height: 100%;
   background: var(--fg-dim);
-  transition: width 0.4s ease;
+  transition: width 0.4s ease, background 0.3s;
 }
-.metric-fill.warning  { background: #d4a45a; }
+.metric-fill.warning  { background: var(--fg); }
 .metric-fill.critical { background: var(--danger); }
 .metric-foot {
   display: flex;
