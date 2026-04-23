@@ -2,6 +2,7 @@ const hostsEl   = document.getElementById('hosts');
 const errorBox  = document.getElementById('error-box');
 const form      = document.getElementById('add-form');
 const ipInput   = document.getElementById('ip-input');
+const portInput = document.getElementById('port-input');
 const nameInput = document.getElementById('name-input');
 
 function showError(msg) {
@@ -36,13 +37,16 @@ function renderHost(h) {
   const latency = h.last_ok && h.last_latency != null
     ? `${h.last_latency.toFixed(1)} ms`
     : '--';
-  const title = h.name ? escapeHTML(h.name) : escapeHTML(h.ip);
-  const subip = h.name ? `<p class="ip">${escapeHTML(h.ip)}</p>` : '';
+  const target = h.port ? `${h.ip}:${h.port}` : h.ip;
+  const mode   = h.port ? `TCP/${h.port}` : 'ICMP';
+  const title  = h.name ? escapeHTML(h.name) : escapeHTML(target);
+  const subip  = h.name ? `<p class="ip">${escapeHTML(target)}</p>` : '';
   return `
     <article class="card ${statusClass}">
       <header>
         <span class="dot"></span>
         <span class="status">${statusText}</span>
+        <span class="mode">${mode}</span>
         <button class="delete" data-id="${h.id}" title="Remove host" aria-label="Remove host">x</button>
       </header>
       <h2>${title}</h2>
@@ -88,12 +92,17 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const ip   = ipInput.value.trim();
   const name = nameInput.value.trim();
+  const port = portInput.value.trim();
   if (!ip) return;
   try {
     const res = await fetch('/api/hosts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ip, name: name || undefined }),
+      body: JSON.stringify({
+        ip,
+        name: name || undefined,
+        port: port || undefined,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -101,6 +110,7 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     ipInput.value = '';
+    portInput.value = '';
     nameInput.value = '';
     loadHosts();
   } catch {

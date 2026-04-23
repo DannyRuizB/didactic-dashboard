@@ -14,10 +14,12 @@
 
   <main>
     <form id="add-form" class="add-form" autocomplete="off">
-      <input id="ip-input"   type="text" placeholder="IP or hostname (e.g. 192.168.1.1)" required>
-      <input id="name-input" type="text" placeholder="name (optional)">
+      <input id="ip-input"   type="text"   placeholder="IP or hostname (e.g. 192.168.1.1)" required>
+      <input id="port-input" type="number" placeholder="TCP port (optional, e.g. 22)" min="1" max="65535" class="port-field">
+      <input id="name-input" type="text"   placeholder="name (optional)">
       <button type="submit">+ add</button>
     </form>
+    <p class="hint">Leave port empty for ICMP ping. Set a port (22, 80, 443...) to check via TCP — works through VPNs / firewalls that drop ICMP.</p>
 
     <div id="error-box" class="error-box" hidden></div>
 

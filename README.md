@@ -22,11 +22,16 @@ Data persists in `./data/dashboard.db` (SQLite).
 
 ### v0.1 (current)
 - Add hosts by IP or hostname from the web UI
-- Live status (up / down) via ICMP ping
+- Live status (up / down) — **ICMP ping** by default, or **TCP connect** to a chosen port
 - Measured latency in ms
 - SQLite persistence (hosts + ping history)
 - One-command Docker Compose deploy
 - Dark "hacker" theme
+
+### Why two check modes?
+Some networks (VPNs, cloud firewalls) drop ICMP but allow TCP. Adding a
+port (e.g. `22` for SSH, `80` for HTTP) switches the host to a TCP
+connect check, which works through those restrictions.
 
 ### Planned
 - SSH-based metrics: CPU, RAM, disk, load, uptime
@@ -49,7 +54,7 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 
 ## Roadmap
 
-- [x] v0.1 — Add/remove hosts via UI, ping + latency, Docker Compose
+- [x] v0.1 — Add/remove hosts via UI, ICMP + TCP checks, Docker Compose
 - [ ] v0.2 — SSH-based detailed metrics (CPU, RAM, disk, services)
 - [ ] v0.3 — History charts and alerts
 - [ ] v0.4 — Auto-discovery on local network

@@ -14,6 +14,7 @@ db.exec(`
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     ip         TEXT    NOT NULL UNIQUE,
     name       TEXT,
+    port       INTEGER,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   );
   CREATE TABLE IF NOT EXISTS pings (
@@ -26,9 +27,15 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_pings_host_ts ON pings(host_id, ts);
 `);
 
+// Migrate older DBs that were created before the `port` column existed.
+const cols = db.prepare('PRAGMA table_info(hosts)').all();
+if (!cols.some((c) => c.name === 'port')) {
+  db.exec('ALTER TABLE hosts ADD COLUMN port INTEGER');
+}
+
 const stmts = {
   list: db.prepare(`
-    SELECT h.id, h.ip, h.name, h.created_at,
+    SELECT h.id, h.ip, h.name, h.port, h.created_at,
            p.ts         AS last_ts,
            p.ok         AS last_ok,
            p.latency_ms AS last_latency
@@ -39,20 +46,20 @@ const stmts = {
     LEFT JOIN pings p ON p.host_id = h.id AND p.ts = latest.max_ts
     ORDER BY h.created_at ASC
   `),
-  insertHost: db.prepare('INSERT INTO hosts (ip, name) VALUES (?, ?)'),
+  insertHost: db.prepare('INSERT INTO hosts (ip, name, port) VALUES (?, ?, ?)'),
   deleteHost: db.prepare('DELETE FROM hosts WHERE id = ?'),
-  allIds:     db.prepare('SELECT id, ip FROM hosts'),
+  allHosts:   db.prepare('SELECT id, ip, port FROM hosts'),
   insertPing: db.prepare('INSERT INTO pings (host_id, ts, ok, latency_ms) VALUES (?, ?, ?, ?)'),
 };
 
 module.exports = {
   listHosts: () => stmts.list.all(),
-  addHost: (ip, name) => {
-    const info = stmts.insertHost.run(ip, name || null);
-    return { id: info.lastInsertRowid, ip, name: name || null };
+  addHost: (ip, name, port) => {
+    const info = stmts.insertHost.run(ip, name || null, port || null);
+    return { id: info.lastInsertRowid, ip, name: name || null, port: port || null };
   },
   deleteHost: (id) => stmts.deleteHost.run(id),
-  getAllHostIds: () => stmts.allIds.all(),
+  getAllHosts: () => stmts.allHosts.all(),
   recordPing: (hostId, ok, latencyMs) => {
     stmts.insertPing.run(hostId, Math.floor(Date.now() / 1000), ok ? 1 : 0, latencyMs);
   },

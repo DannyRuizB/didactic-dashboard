@@ -56,7 +56,17 @@ body {
   border-color: var(--fg);
   box-shadow: 0 0 6px var(--fg-dim);
 }
-.add-form input[type="text"] { flex: 1; min-width: 160px; }
+.add-form input[type="text"]   { flex: 1; min-width: 160px; }
+.add-form input[type="number"] { width: 150px; }
+.add-form .port-field::-webkit-outer-spin-button,
+.add-form .port-field::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+.hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-bottom: 1.5rem;
+  margin-top: -0.5rem;
+}
 .add-form button {
   cursor: pointer;
   background: transparent;
@@ -127,7 +137,12 @@ body {
 .card .status {
   font-size: 0.75rem;
   letter-spacing: 1.5px;
+}
+.card .mode {
   flex: 1;
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 1px;
 }
 .card.up   .status { color: var(--fg); }
 .card.down .status { color: var(--danger); }
