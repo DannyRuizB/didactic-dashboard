@@ -1,9 +1,11 @@
-const hostsEl   = document.getElementById('hosts');
-const errorBox  = document.getElementById('error-box');
-const form      = document.getElementById('add-form');
-const ipInput   = document.getElementById('ip-input');
-const portInput = document.getElementById('port-input');
-const nameInput = document.getElementById('name-input');
+const hostsEl    = document.getElementById('hosts');
+const errorBox   = document.getElementById('error-box');
+const form       = document.getElementById('add-form');
+const ipInput    = document.getElementById('ip-input');
+const checkType  = document.getElementById('check-type');
+const userInput  = document.getElementById('user-input');
+const portInput  = document.getElementById('port-input');
+const nameInput  = document.getElementById('name-input');
 
 function showError(msg) {
   errorBox.textContent = msg;
@@ -27,6 +29,31 @@ function relativeTime(ts) {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
+function formatUptime(s) {
+  if (s == null || isNaN(s)) return '--';
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function pctBar(label, value) {
+  if (value == null || isNaN(value)) return '';
+  const pct = Math.max(0, Math.min(100, value));
+  let cls = 'metric-fill';
+  if (pct >= 90)       cls += ' critical';
+  else if (pct >= 70)  cls += ' warning';
+  return `
+    <div class="metric">
+      <span class="metric-label">${label}</span>
+      <span class="metric-track"><span class="${cls}" style="width:${pct.toFixed(1)}%"></span></span>
+      <span class="metric-value">${pct.toFixed(0)}%</span>
+    </div>
+  `;
+}
+
 function renderHost(h) {
   let statusClass = 'unknown';
   let statusText  = 'UNKNOWN';
@@ -34,13 +61,39 @@ function renderHost(h) {
     if (h.last_ok) { statusClass = 'up';   statusText = 'UP'; }
     else           { statusClass = 'down'; statusText = 'DOWN'; }
   }
+
+  let mode;
+  if      (h.check_type === 'ssh') mode = `SSH/${h.port || 22}`;
+  else if (h.check_type === 'tcp') mode = `TCP/${h.port}`;
+  else                             mode = 'ICMP';
+
+  let targetDisplay;
+  if      (h.check_type === 'ssh') targetDisplay = `${h.ssh_user}@${h.ip}`;
+  else if (h.port)                 targetDisplay = `${h.ip}:${h.port}`;
+  else                             targetDisplay = h.ip;
+
   const latency = h.last_ok && h.last_latency != null
-    ? `${h.last_latency.toFixed(1)} ms`
+    ? `${h.last_latency.toFixed(0)} ms`
     : '--';
-  const target = h.port ? `${h.ip}:${h.port}` : h.ip;
-  const mode   = h.port ? `TCP/${h.port}` : 'ICMP';
-  const title  = h.name ? escapeHTML(h.name) : escapeHTML(target);
-  const subip  = h.name ? `<p class="ip">${escapeHTML(target)}</p>` : '';
+
+  const title = h.name ? escapeHTML(h.name) : escapeHTML(targetDisplay);
+  const sub   = h.name ? `<p class="ip">${escapeHTML(targetDisplay)}</p>` : '';
+
+  let metricsHtml = '';
+  if (h.check_type === 'ssh' && h.cpu != null) {
+    metricsHtml = `
+      <div class="metrics">
+        ${pctBar('CPU', h.cpu)}
+        ${pctBar('RAM', h.ram)}
+        ${pctBar('Disk', h.disk)}
+        <div class="metric-foot">
+          <span>load ${h.load1 != null ? h.load1.toFixed(2) : '--'}</span>
+          <span>up ${formatUptime(h.uptime_s)}</span>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <article class="card ${statusClass}">
       <header>
@@ -50,7 +103,8 @@ function renderHost(h) {
         <button class="delete" data-id="${h.id}" title="Remove host" aria-label="Remove host">x</button>
       </header>
       <h2>${title}</h2>
-      ${subip}
+      ${sub}
+      ${metricsHtml}
       <footer>
         <span class="latency">${latency}</span>
         <span class="checked">${relativeTime(h.last_ts)}</span>
@@ -88,11 +142,26 @@ hostsEl.addEventListener('click', async (e) => {
   }
 });
 
+function updateFormFields() {
+  const t = checkType.value;
+  userInput.hidden = (t !== 'ssh');
+  portInput.hidden = (t === 'icmp');
+  userInput.required = (t === 'ssh');
+  portInput.required = (t === 'tcp');
+  portInput.placeholder = (t === 'ssh') ? 'port (default 22)' : 'port';
+  if (t !== 'ssh')  userInput.value = '';
+  if (t === 'icmp') portInput.value = '';
+}
+checkType.addEventListener('change', updateFormFields);
+updateFormFields();
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const ip   = ipInput.value.trim();
-  const name = nameInput.value.trim();
+  const type = checkType.value;
+  const user = userInput.value.trim();
   const port = portInput.value.trim();
+  const name = nameInput.value.trim();
   if (!ip) return;
   try {
     const res = await fetch('/api/hosts', {
@@ -102,6 +171,8 @@ form.addEventListener('submit', async (e) => {
         ip,
         name: name || undefined,
         port: port || undefined,
+        check_type: type,
+        ssh_user: user || undefined,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -110,8 +181,11 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     ipInput.value = '';
+    userInput.value = '';
     portInput.value = '';
     nameInput.value = '';
+    checkType.value = 'icmp';
+    updateFormFields();
     loadHosts();
   } catch {
     showError('Network error');

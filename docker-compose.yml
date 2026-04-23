@@ -1,13 +1,21 @@
 services:
   dashboard:
     build: .
+    image: dannyruizb/didactic-dashboard:latest
     container_name: didactic-dashboard
     ports:
       - "3000:3000"
     volumes:
-      - ./data:/app/data
+      - didactic-data:/app/data
+      # Read-only mount of your SSH config so the container can collect
+      # metrics from remote hosts via SSH without duplicating keys.
+      # Remove this line if you only need ICMP / TCP checks.
+      - ~/.ssh:/root/.ssh:ro
     environment:
       - PORT=3000
       - DB_PATH=/app/data/dashboard.db
       - PING_INTERVAL=10000
     restart: unless-stopped
+
+volumes:
+  didactic-data:

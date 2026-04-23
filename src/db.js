@@ -15,6 +15,8 @@ db.exec(`
     ip         TEXT    NOT NULL UNIQUE,
     name       TEXT,
     port       INTEGER,
+    check_type TEXT    NOT NULL DEFAULT 'icmp',
+    ssh_user   TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   );
   CREATE TABLE IF NOT EXISTS pings (
@@ -25,42 +27,92 @@ db.exec(`
     FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
   );
   CREATE INDEX IF NOT EXISTS idx_pings_host_ts ON pings(host_id, ts);
+  CREATE TABLE IF NOT EXISTS metrics (
+    host_id  INTEGER NOT NULL,
+    ts       INTEGER NOT NULL,
+    cpu      REAL,
+    ram      REAL,
+    disk     REAL,
+    load1    REAL,
+    uptime_s INTEGER,
+    FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_metrics_host_ts ON metrics(host_id, ts);
 `);
 
-// Migrate older DBs that were created before the `port` column existed.
+// Migrate older databases that predate newer columns.
 const cols = db.prepare('PRAGMA table_info(hosts)').all();
-if (!cols.some((c) => c.name === 'port')) {
-  db.exec('ALTER TABLE hosts ADD COLUMN port INTEGER');
-}
+const hasCol = (n) => cols.some((c) => c.name === n);
+if (!hasCol('port'))       db.exec('ALTER TABLE hosts ADD COLUMN port INTEGER');
+if (!hasCol('check_type')) db.exec("ALTER TABLE hosts ADD COLUMN check_type TEXT NOT NULL DEFAULT 'icmp'");
+if (!hasCol('ssh_user'))   db.exec('ALTER TABLE hosts ADD COLUMN ssh_user TEXT');
+
+// Older rows that had a port but no explicit type should be treated as TCP.
+db.exec("UPDATE hosts SET check_type = 'tcp' WHERE port IS NOT NULL AND check_type = 'icmp'");
 
 const stmts = {
   list: db.prepare(`
-    SELECT h.id, h.ip, h.name, h.port, h.created_at,
+    SELECT h.id, h.ip, h.name, h.port, h.check_type, h.ssh_user, h.created_at,
            p.ts         AS last_ts,
            p.ok         AS last_ok,
-           p.latency_ms AS last_latency
+           p.latency_ms AS last_latency,
+           m.cpu        AS cpu,
+           m.ram        AS ram,
+           m.disk       AS disk,
+           m.load1      AS load1,
+           m.uptime_s   AS uptime_s
     FROM hosts h
     LEFT JOIN (
       SELECT host_id, MAX(ts) AS max_ts FROM pings GROUP BY host_id
-    ) latest ON latest.host_id = h.id
-    LEFT JOIN pings p ON p.host_id = h.id AND p.ts = latest.max_ts
+    ) lp ON lp.host_id = h.id
+    LEFT JOIN pings p ON p.host_id = h.id AND p.ts = lp.max_ts
+    LEFT JOIN (
+      SELECT host_id, MAX(ts) AS max_ts FROM metrics GROUP BY host_id
+    ) lm ON lm.host_id = h.id
+    LEFT JOIN metrics m ON m.host_id = h.id AND m.ts = lm.max_ts
     ORDER BY h.created_at ASC
   `),
-  insertHost: db.prepare('INSERT INTO hosts (ip, name, port) VALUES (?, ?, ?)'),
-  deleteHost: db.prepare('DELETE FROM hosts WHERE id = ?'),
-  allHosts:   db.prepare('SELECT id, ip, port FROM hosts'),
-  insertPing: db.prepare('INSERT INTO pings (host_id, ts, ok, latency_ms) VALUES (?, ?, ?, ?)'),
+  insertHost: db.prepare(`
+    INSERT INTO hosts (ip, name, port, check_type, ssh_user)
+    VALUES (?, ?, ?, ?, ?)
+  `),
+  deleteHost:    db.prepare('DELETE FROM hosts WHERE id = ?'),
+  allHosts:      db.prepare('SELECT id, ip, port, check_type, ssh_user FROM hosts'),
+  insertPing:    db.prepare('INSERT INTO pings (host_id, ts, ok, latency_ms) VALUES (?, ?, ?, ?)'),
+  insertMetrics: db.prepare(`
+    INSERT INTO metrics (host_id, ts, cpu, ram, disk, load1, uptime_s)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `),
 };
 
 module.exports = {
   listHosts: () => stmts.list.all(),
-  addHost: (ip, name, port) => {
-    const info = stmts.insertHost.run(ip, name || null, port || null);
-    return { id: info.lastInsertRowid, ip, name: name || null, port: port || null };
+  addHost: (ip, name, port, checkType, sshUser) => {
+    const info = stmts.insertHost.run(
+      ip,
+      name || null,
+      port || null,
+      checkType,
+      sshUser || null,
+    );
+    return {
+      id: info.lastInsertRowid,
+      ip,
+      name: name || null,
+      port: port || null,
+      check_type: checkType,
+      ssh_user: sshUser || null,
+    };
   },
   deleteHost: (id) => stmts.deleteHost.run(id),
   getAllHosts: () => stmts.allHosts.all(),
   recordPing: (hostId, ok, latencyMs) => {
     stmts.insertPing.run(hostId, Math.floor(Date.now() / 1000), ok ? 1 : 0, latencyMs);
+  },
+  recordMetrics: (hostId, m) => {
+    stmts.insertMetrics.run(
+      hostId, Math.floor(Date.now() / 1000),
+      m.cpu, m.ram, m.disk, m.load1, m.uptime_s,
+    );
   },
 };

@@ -10,7 +10,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.1 released, more features coming.
+> Work in progress — v0.2 released, more features coming.
 
 ## Screenshots
 
@@ -47,18 +47,16 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.1 (current)
-- Add hosts by IP or hostname from the web UI
-- Live status (up / down) — **ICMP ping** by default, or **TCP connect** to a chosen port
-- Measured latency in ms
-- SQLite persistence (hosts + ping history)
+### v0.2 (current)
+- Three check modes per host:
+  - **ICMP** — classic ping (default)
+  - **TCP** — connect to a given port (works through VPNs / firewalls blocking ICMP)
+  - **SSH** — connect, run a small command and collect real-time metrics
+- **Metrics** (SSH only): CPU %, RAM %, Disk %, load avg, uptime — with live progress bars
+- Add / remove hosts by IP or hostname from the web UI
+- SQLite persistence (hosts, ping history, metrics history)
 - One-command Docker Compose deploy
 - Warm amber theme with light / dark toggle (persists in localStorage)
-
-### Why two check modes?
-Some networks (VPNs, cloud firewalls) drop ICMP but allow TCP. Adding a
-port (e.g. `22` for SSH, `80` for HTTP) switches the host to a TCP
-connect check, which works through those restrictions.
 
 ### Planned
 - SSH-based metrics: CPU, RAM, disk, load, uptime
@@ -82,9 +80,20 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 ## Roadmap
 
 - [x] v0.1 — Add/remove hosts via UI, ICMP + TCP checks, Docker Compose
-- [ ] v0.2 — SSH-based detailed metrics (CPU, RAM, disk, services)
-- [ ] v0.3 — History charts and alerts
+- [x] v0.2 — SSH-based metrics (CPU, RAM, disk, load, uptime) with live bars
+- [ ] v0.3 — History charts, services list, alerts
 - [ ] v0.4 — Auto-discovery on local network
+
+## SSH check setup
+
+To use the SSH check mode and collect metrics from remote hosts:
+
+1. Make sure your **SSH key** (`~/.ssh/id_ed25519.pub` or `id_rsa.pub`) is on the target host in its `~/.ssh/authorized_keys`.
+2. The container mounts your `~/.ssh` as **read-only** (`~/.ssh:/root/.ssh:ro`), so it reuses your keys without copying them.
+3. When adding a host, pick **SSH** as the check type and enter the remote user (e.g. `root`, `ubuntu`, `soltecsis`...). Port defaults to `22`.
+4. The target host only needs standard tools (`top`, `free`, `df`, `awk`, `/proc`) — no agent install required.
+
+The remote user does **not** need root. Standard user privileges are enough for the metrics collected.
 
 ## Configuration
 
