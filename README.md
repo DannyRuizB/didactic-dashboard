@@ -1,5 +1,7 @@
 # didactic-dashboard
 
+### [Try the live demo →](https://didactic-dashboard.onrender.com)
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-20-3c873a.svg)
 [![Docker Hub](https://img.shields.io/docker/v/dannyruizb/didactic-dashboard?label=docker%20hub&logo=docker&sort=semver)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
@@ -21,6 +23,10 @@ Dark theme:
 Light theme:
 
 ![Light theme](docs/screenshot-light.png)
+
+## Live demo
+
+A public demo with pre-seeded hosts (Google, Cloudflare, GitHub, Docker Hub, example.com) is running at **https://didactic-dashboard.onrender.com** — hosted on Render free tier, so the first request after idle may take ~30s to wake up. SSH check mode is disabled on the demo; for that, self-host.
 
 ## Quick start
 
