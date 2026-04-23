@@ -4,8 +4,18 @@ const path = require('path');
 const { execFile } = require('child_process');
 const db = require('./db');
 
-const PORT          = parseInt(process.env.PORT          || '3000',  10);
-const PING_INTERVAL = parseInt(process.env.PING_INTERVAL || '10000', 10);
+const PORT           = parseInt(process.env.PORT          || '3000',  10);
+const PING_INTERVAL  = parseInt(process.env.PING_INTERVAL || '10000', 10);
+const DEMO_MODE      = process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === '1';
+const DEMO_MAX_HOSTS = parseInt(process.env.DEMO_MAX_HOSTS || '15', 10);
+
+const DEMO_SEEDS = [
+  { ip: 'google.com',     name: 'Google',        port: 443, check_type: 'tcp' },
+  { ip: 'cloudflare.com', name: 'Cloudflare',    port: 443, check_type: 'tcp' },
+  { ip: 'github.com',     name: 'GitHub',        port: 443, check_type: 'tcp' },
+  { ip: 'hub.docker.com', name: 'Docker Hub',    port: 443, check_type: 'tcp' },
+  { ip: 'example.com',    name: 'example.com',   port: 80,  check_type: 'tcp' },
+];
 
 const app = express();
 app.use(express.json());
@@ -28,6 +38,13 @@ function parsePort(raw) {
   return n;
 }
 
+app.get('/api/config', (_req, res) => {
+  res.json({
+    demo: DEMO_MODE,
+    max_hosts: DEMO_MODE ? DEMO_MAX_HOSTS : null,
+  });
+});
+
 app.get('/api/hosts', (_req, res) => {
   res.json(db.listHosts());
 });
@@ -40,6 +57,15 @@ app.post('/api/hosts', (req, res) => {
   }
 
   const type = ['icmp', 'tcp', 'ssh'].includes(body.check_type) ? body.check_type : 'icmp';
+
+  if (DEMO_MODE) {
+    if (type === 'ssh') {
+      return res.status(403).json({ error: 'SSH check is disabled in the public demo. Self-host to use SSH mode.' });
+    }
+    if (db.getAllHosts().length >= DEMO_MAX_HOSTS) {
+      return res.status(429).json({ error: `Demo limit reached (${DEMO_MAX_HOSTS} hosts). Delete one to add another.` });
+    }
+  }
 
   let parsedPort = parsePort(body.port);
   if (parsedPort === undefined) {
@@ -179,11 +205,22 @@ async function checkAll() {
   }));
 }
 
+function seedDemoHosts() {
+  if (db.listHosts().length > 0) return;
+  for (const d of DEMO_SEEDS) {
+    try { db.addHost(d.ip, d.name, d.port, d.check_type, null); } catch {}
+  }
+  console.log(`demo mode: seeded ${DEMO_SEEDS.length} hosts`);
+}
+
+if (DEMO_MODE) seedDemoHosts();
+
 setTimeout(() => {
   checkAll().catch(() => {});
   setInterval(() => checkAll().catch(() => {}), PING_INTERVAL);
 }, 2000);
 
 app.listen(PORT, () => {
-  console.log(`didactic-dashboard listening on :${PORT} (check every ${PING_INTERVAL}ms)`);
+  const mode = DEMO_MODE ? ' [DEMO]' : '';
+  console.log(`didactic-dashboard listening on :${PORT}${mode} (check every ${PING_INTERVAL}ms)`);
 });

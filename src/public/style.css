@@ -146,6 +146,25 @@ body {
   margin-bottom: 1rem;
 }
 
+.demo-banner {
+  background: var(--bg-card);
+  color: var(--fg);
+  border: 1px solid var(--fg-dim);
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.demo-banner strong {
+  color: var(--fg-strong);
+  letter-spacing: 1px;
+}
+.demo-banner a {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.demo-banner a:hover { color: var(--fg-strong); }
+
 .hosts {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

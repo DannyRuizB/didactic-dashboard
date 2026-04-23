@@ -15,6 +15,7 @@ services:
       - PORT=3000
       - DB_PATH=/app/data/dashboard.db
       - PING_INTERVAL=10000
+      - DEMO_MODE=${DEMO_MODE:-false}
     restart: unless-stopped
 
 volumes:

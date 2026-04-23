@@ -6,6 +6,20 @@ const checkType  = document.getElementById('check-type');
 const userInput  = document.getElementById('user-input');
 const portInput  = document.getElementById('port-input');
 const nameInput  = document.getElementById('name-input');
+const demoBanner = document.getElementById('demo-banner');
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    if (!res.ok) return;
+    const cfg = await res.json();
+    if (cfg.demo) {
+      demoBanner.hidden = false;
+      const sshOpt = checkType.querySelector('option[value="ssh"]');
+      if (sshOpt) sshOpt.remove();
+    }
+  } catch { /* fine without config */ }
+}
 
 function showError(msg) {
   errorBox.textContent = msg;
@@ -206,5 +220,6 @@ themeToggle.addEventListener('click', () => {
 });
 renderThemeButton();
 
+loadConfig();
 loadHosts();
 setInterval(loadHosts, 5000);
