@@ -24,6 +24,10 @@ Light theme:
 
 ![Light theme](docs/screenshot-light.png)
 
+History charts (click the `chart` button on any SSH host):
+
+![History charts](docs/screenshot-charts.png)
+
 ## Live demo
 
 A public demo with pre-seeded hosts (Google, Cloudflare, GitHub, Docker Hub, example.com) is running at **https://didactic-dashboard.onrender.com** — hosted on Render free tier, so the first request after idle may take ~30s to wake up. SSH check mode is disabled on the demo; for that, self-host.
