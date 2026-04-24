@@ -93,6 +93,21 @@ app.post('/api/hosts', (req, res) => {
   }
 });
 
+const WINDOW_SECONDS = {
+  '1h':  60 * 60,
+  '24h': 24 * 60 * 60,
+  '7d':  7  * 24 * 60 * 60,
+  '30d': 30 * 24 * 60 * 60,
+};
+
+app.get('/api/hosts/:id/history', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  const window = WINDOW_SECONDS[req.query.window] ? req.query.window : '1h';
+  const since = Math.floor(Date.now() / 1000) - WINDOW_SECONDS[window];
+  res.json({ window, metrics: db.getMetricsSince(id, since) });
+});
+
 app.delete('/api/hosts/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });

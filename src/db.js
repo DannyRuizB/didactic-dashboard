@@ -83,6 +83,12 @@ const stmts = {
     INSERT INTO metrics (host_id, ts, cpu, ram, disk, load1, uptime_s)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `),
+  metricsSince: db.prepare(`
+    SELECT ts, cpu, ram, disk, load1
+    FROM metrics
+    WHERE host_id = ? AND ts >= ?
+    ORDER BY ts ASC
+  `),
 };
 
 module.exports = {
@@ -115,4 +121,5 @@ module.exports = {
       m.cpu, m.ram, m.disk, m.load1, m.uptime_s,
     );
   },
+  getMetricsSince: (hostId, sinceTs) => stmts.metricsSince.all(hostId, sinceTs),
 };

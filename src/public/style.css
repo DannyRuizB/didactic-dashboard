@@ -242,6 +242,63 @@ body {
   border-color: var(--danger);
 }
 
+.card .chart-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 1px;
+  height: 24px;
+  padding: 0 0.45rem;
+  line-height: 1;
+  transition: color 0.15s, border-color 0.15s;
+}
+.card .chart-toggle:hover {
+  color: var(--fg-strong);
+  border-color: var(--fg);
+}
+
+.chart-panel {
+  margin-top: 0.6rem;
+  padding: 0.6rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+}
+.chart-panel[hidden] { display: none; }
+.chart-panel canvas { width: 100% !important; display: block; }
+.chart-panel .chart-pct  { height: 280px !important; }
+.chart-panel .chart-load { height: 140px !important; margin-top: 0.6rem; }
+
+/* When a card's chart panel is open, let the card span the whole grid so the
+   charts have room to breathe. */
+.card:has(.chart-panel:not([hidden])) {
+  grid-column: 1 / -1;
+}
+
+.window-picker {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+.win-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.win-btn:hover { color: var(--fg); border-color: var(--fg-dim); }
+.win-btn.active {
+  color: var(--bg);
+  background: var(--fg);
+  border-color: var(--fg);
+}
+
 .card h2 {
   font-size: 1.05rem;
   color: var(--fg-strong);

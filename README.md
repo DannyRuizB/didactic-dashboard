@@ -12,7 +12,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.2 released, more features coming.
+> Work in progress — v0.3 released, more features coming.
 
 ## Screenshots
 
@@ -53,23 +53,21 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.2 (current)
+### v0.3 (current)
 - Three check modes per host:
   - **ICMP** — classic ping (default)
   - **TCP** — connect to a given port (works through VPNs / firewalls blocking ICMP)
   - **SSH** — connect, run a small command and collect real-time metrics
 - **Metrics** (SSH only): CPU %, RAM %, Disk %, load avg, uptime — with live progress bars
+- **History charts**: click any SSH host to see CPU / RAM / disk / load1 over the last `1h`, `24h`, `7d` or `30d`
 - Add / remove hosts by IP or hostname from the web UI
 - SQLite persistence (hosts, ping history, metrics history)
 - One-command Docker Compose deploy
 - Warm amber theme with light / dark toggle (persists in localStorage)
 
 ### Planned
-- SSH-based metrics: CPU, RAM, disk, load, uptime
-- Service status (systemd)
-- Top processes and active connections
-- Historical charts (1h / 24h / 7d / 30d)
-- Alerts (warning / critical)
+- Host detail panel: systemd services, top processes, users, network
+- Alerts (warning / critical) via email or webhook
 - Auto-discovery on local network
 
 ## Why
@@ -87,8 +85,10 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 
 - [x] v0.1 — Add/remove hosts via UI, ICMP + TCP checks, Docker Compose
 - [x] v0.2 — SSH-based metrics (CPU, RAM, disk, load, uptime) with live bars
-- [ ] v0.3 — History charts, services list, alerts
-- [ ] v0.4 — Auto-discovery on local network
+- [x] v0.3 — History charts (1h / 24h / 7d / 30d) per SSH host
+- [ ] v0.4 — Host detail: systemd services, top processes, users, network
+- [ ] v0.5 — Alerts (warning / critical) via email or webhook
+- [ ] v0.6 — Auto-discovery on local network
 
 ## SSH check setup
 
