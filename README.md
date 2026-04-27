@@ -12,7 +12,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.3 released, more features coming.
+> Work in progress — v0.4.0 released, more features coming.
 
 ## Screenshots
 
@@ -27,6 +27,10 @@ Light theme:
 History charts (click the `chart` button on any SSH host):
 
 ![History charts](docs/screenshot-charts.png)
+
+Host details — systemd services + top processes (click the `details` button on any SSH host):
+
+![Host details](docs/screenshot-details.png)
 
 ## Live demo
 
@@ -57,7 +61,11 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.3 (current)
+### v0.4.0 (current)
+- **Host details panel** (SSH only): click the `details` button on any SSH card to see
+  - **systemd services**: live `active` / `inactive` / `failed` state for any units you configured for that host
+  - **top 5 processes** by CPU (the probe filters its own session out, so you see real workload)
+- Per-host services list configured at add time (comma-separated unit names, e.g. `ssh,cron,nginx`)
 - Three check modes per host:
   - **ICMP** — classic ping (default)
   - **TCP** — connect to a given port (works through VPNs / firewalls blocking ICMP)
@@ -70,9 +78,9 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 - Warm amber theme with light / dark toggle (persists in localStorage)
 
 ### Planned
-- Host detail panel: systemd services, top processes, users, network
-- Alerts (warning / critical) via email or webhook
-- Auto-discovery on local network
+- v0.4.1 — Host detail panel: connected users + network traffic
+- v0.5 — Alerts (warning / critical) via email or webhook
+- v0.6 — Auto-discovery on local network
 
 ## Why
 
@@ -90,7 +98,8 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 - [x] v0.1 — Add/remove hosts via UI, ICMP + TCP checks, Docker Compose
 - [x] v0.2 — SSH-based metrics (CPU, RAM, disk, load, uptime) with live bars
 - [x] v0.3 — History charts (1h / 24h / 7d / 30d) per SSH host
-- [ ] v0.4 — Host detail: systemd services, top processes, users, network
+- [x] v0.4.0 — Host detail panel: systemd services + top processes
+- [ ] v0.4.1 — Host detail panel: connected users + network traffic
 - [ ] v0.5 — Alerts (warning / critical) via email or webhook
 - [ ] v0.6 — Auto-discovery on local network
 
@@ -101,9 +110,10 @@ To use the SSH check mode and collect metrics from remote hosts:
 1. Make sure your **SSH key** (`~/.ssh/id_ed25519.pub` or `id_rsa.pub`) is on the target host in its `~/.ssh/authorized_keys`.
 2. The container mounts your `~/.ssh` as **read-only** (`~/.ssh:/root/.ssh:ro`), so it reuses your keys without copying them.
 3. When adding a host, pick **SSH** as the check type and enter the remote user (e.g. `root`, `ubuntu`, `soltecsis`...). Port defaults to `22`.
-4. The target host only needs standard tools (`top`, `free`, `df`, `awk`, `/proc`) — no agent install required.
+4. *(Optional)* In the **services** field, list the systemd unit names you want to monitor for that host, comma-separated (e.g. `ssh,cron,nginx,named`). They show up in the `details` panel with their live state.
+5. The target host only needs standard tools (`ps`, `top`, `free`, `df`, `awk`, `/proc`, plus `systemctl` for the services panel) — no agent install required.
 
-The remote user does **not** need root. Standard user privileges are enough for the metrics collected.
+The remote user does **not** need root. Standard user privileges are enough for the metrics collected and for `systemctl is-active` queries.
 
 ## Configuration
 

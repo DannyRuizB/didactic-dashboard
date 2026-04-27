@@ -17,6 +17,7 @@ db.exec(`
     port       INTEGER,
     check_type TEXT    NOT NULL DEFAULT 'icmp',
     ssh_user   TEXT,
+    services   TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   );
   CREATE TABLE IF NOT EXISTS pings (
@@ -46,13 +47,14 @@ const hasCol = (n) => cols.some((c) => c.name === n);
 if (!hasCol('port'))       db.exec('ALTER TABLE hosts ADD COLUMN port INTEGER');
 if (!hasCol('check_type')) db.exec("ALTER TABLE hosts ADD COLUMN check_type TEXT NOT NULL DEFAULT 'icmp'");
 if (!hasCol('ssh_user'))   db.exec('ALTER TABLE hosts ADD COLUMN ssh_user TEXT');
+if (!hasCol('services'))   db.exec('ALTER TABLE hosts ADD COLUMN services TEXT');
 
 // Older rows that had a port but no explicit type should be treated as TCP.
 db.exec("UPDATE hosts SET check_type = 'tcp' WHERE port IS NOT NULL AND check_type = 'icmp'");
 
 const stmts = {
   list: db.prepare(`
-    SELECT h.id, h.ip, h.name, h.port, h.check_type, h.ssh_user, h.created_at,
+    SELECT h.id, h.ip, h.name, h.port, h.check_type, h.ssh_user, h.services, h.created_at,
            p.ts         AS last_ts,
            p.ok         AS last_ok,
            p.latency_ms AS last_latency,
@@ -73,11 +75,12 @@ const stmts = {
     ORDER BY h.created_at ASC
   `),
   insertHost: db.prepare(`
-    INSERT INTO hosts (ip, name, port, check_type, ssh_user)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO hosts (ip, name, port, check_type, ssh_user, services)
+    VALUES (?, ?, ?, ?, ?, ?)
   `),
   deleteHost:    db.prepare('DELETE FROM hosts WHERE id = ?'),
-  allHosts:      db.prepare('SELECT id, ip, port, check_type, ssh_user FROM hosts'),
+  allHosts:      db.prepare('SELECT id, ip, port, check_type, ssh_user, services FROM hosts'),
+  hostById:      db.prepare('SELECT id, ip, port, check_type, ssh_user, services FROM hosts WHERE id = ?'),
   insertPing:    db.prepare('INSERT INTO pings (host_id, ts, ok, latency_ms) VALUES (?, ?, ?, ?)'),
   insertMetrics: db.prepare(`
     INSERT INTO metrics (host_id, ts, cpu, ram, disk, load1, uptime_s)
@@ -93,13 +96,14 @@ const stmts = {
 
 module.exports = {
   listHosts: () => stmts.list.all(),
-  addHost: (ip, name, port, checkType, sshUser) => {
+  addHost: (ip, name, port, checkType, sshUser, services) => {
     const info = stmts.insertHost.run(
       ip,
       name || null,
       port || null,
       checkType,
       sshUser || null,
+      services || null,
     );
     return {
       id: info.lastInsertRowid,
@@ -108,10 +112,12 @@ module.exports = {
       port: port || null,
       check_type: checkType,
       ssh_user: sshUser || null,
+      services: services || null,
     };
   },
   deleteHost: (id) => stmts.deleteHost.run(id),
   getAllHosts: () => stmts.allHosts.all(),
+  getHostById: (id) => stmts.hostById.get(id),
   recordPing: (hostId, ok, latencyMs) => {
     stmts.insertPing.run(hostId, Math.floor(Date.now() / 1000), ok ? 1 : 0, latencyMs);
   },

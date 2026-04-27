@@ -18,7 +18,7 @@
       <h1>&gt; didactic-dashboard</h1>
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">theme: dark</button>
     </div>
-    <p class="sub">simple network monitor &middot; v0.3</p>
+    <p class="sub">simple network monitor &middot; v0.4.0</p>
   </header>
 
   <main>
@@ -36,10 +36,11 @@
       </select>
       <input id="user-input" type="text"   placeholder="SSH user" class="field-ssh" hidden>
       <input id="port-input" type="number" placeholder="port" min="1" max="65535" class="field-port port-field" hidden>
+      <input id="services-input" type="text" placeholder="services (e.g. ssh,cron,nginx)" class="field-ssh services-field" hidden>
       <input id="name-input" type="text"   placeholder="name (optional)">
       <button type="submit">+ add</button>
     </form>
-    <p class="hint">ICMP = ping &middot; TCP = connect to port (works through VPNs blocking ICMP) &middot; SSH = connect and collect CPU / RAM / disk metrics (your <code>~/.ssh</code> key must be authorized on the target host)</p>
+    <p class="hint">ICMP = ping &middot; TCP = connect to port (works through VPNs blocking ICMP) &middot; SSH = connect and collect CPU / RAM / disk metrics (your <code>~/.ssh</code> key must be authorized on the target host) &middot; <strong>services</strong> = comma-separated systemd unit names to monitor in the details panel</p>
 
     <div id="error-box" class="error-box" hidden></div>
 
@@ -47,7 +48,7 @@
   </main>
 
   <footer class="page-footer">
-    <span>didactic-dashboard v0.3</span>
+    <span>didactic-dashboard v0.4.0</span>
     <a href="https://github.com/DannyRuizB/didactic-dashboard" target="_blank" rel="noopener">github.com/DannyRuizB/didactic-dashboard</a>
   </footer>
 

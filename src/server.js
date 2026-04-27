@@ -25,6 +25,19 @@ function isValidSshUser(str) {
   return /^[a-zA-Z0-9._-]+$/.test(str);
 }
 
+function parseServices(raw) {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, value: null };
+  if (typeof raw !== 'string') return { ok: false };
+  if (raw.length > 512) return { ok: false };
+  const items = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  if (items.length > 20) return { ok: false };
+  for (const s of items) {
+    if (s.length > 64) return { ok: false };
+    if (!/^[a-zA-Z0-9._@-]+$/.test(s)) return { ok: false };
+  }
+  return { ok: true, value: items.length ? items.join(',') : null };
+}
+
 function parsePort(raw) {
   if (raw === undefined || raw === null || raw === '') return null;
   const n = Number(raw);
@@ -72,18 +85,25 @@ app.post('/api/hosts', (req, res) => {
   if (type === 'icmp') parsedPort = null;
 
   let user = null;
+  let services = null;
   if (type === 'ssh') {
     const u = typeof body.ssh_user === 'string' ? body.ssh_user.trim() : '';
     if (!isValidSshUser(u)) {
       return res.status(400).json({ error: 'Valid SSH user required (letters, digits, . _ -)' });
     }
     user = u;
+
+    const parsedServices = parseServices(body.services);
+    if (!parsedServices.ok) {
+      return res.status(400).json({ error: 'Invalid services list (comma-separated unit names, max 20)' });
+    }
+    services = parsedServices.value;
   }
 
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
 
   try {
-    const host = db.addHost(target, name, parsedPort, type, user);
+    const host = db.addHost(target, name, parsedPort, type, user, services);
     res.status(201).json(host);
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) {
@@ -106,6 +126,22 @@ app.get('/api/hosts/:id/history', (req, res) => {
   const window = WINDOW_SECONDS[req.query.window] ? req.query.window : '1h';
   const since = Math.floor(Date.now() / 1000) - WINDOW_SECONDS[window];
   res.json({ window, metrics: db.getMetricsSince(id, since) });
+});
+
+app.get('/api/hosts/:id/details', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  const host = db.getHostById(id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+  if (host.check_type !== 'ssh') {
+    return res.status(400).json({ error: 'Details are only available for SSH hosts' });
+  }
+  const result = await detailsCheck(host.ip, host.ssh_user, host.port, host.services);
+  if (!result.ok) return res.status(502).json({ error: 'SSH host unreachable' });
+  res.json({
+    services: result.services,
+    top_processes: result.top_processes,
+  });
 });
 
 app.delete('/api/hosts/:id', (req, res) => {
@@ -167,6 +203,7 @@ function sshCheck(target, user, port) {
   return new Promise((resolve) => {
     const start = Date.now();
     const args = [
+      '-F', '/dev/null',
       '-o', 'BatchMode=yes',
       '-o', 'ConnectTimeout=5',
       '-o', 'StrictHostKeyChecking=no',
@@ -199,6 +236,62 @@ function sshCheck(target, user, port) {
           uptime_s: Math.round(parsed.uptime),
         },
       });
+    });
+  });
+}
+
+// On-demand details probe: services state + top 5 processes by CPU.
+// Service names are validated/sanitised at write time, so they are safe
+// to interpolate into the remote shell script. The output uses prefixes
+// `svc=name=state` and `proc=user|pid|cpu|ram|cmd` for unambiguous parsing.
+function detailsCheck(target, user, port, servicesCsv) {
+  const services = (servicesCsv || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && /^[a-zA-Z0-9._@-]+$/.test(s) && s.length <= 64)
+    .slice(0, 20);
+
+  // Top 5 processes by CPU. We filter out anything in the same session as our
+  // shell ($$) plus any sshd-session helpers, so the table doesn't get
+  // dominated by the probe's own ps/awk/bash and the sshd that hosts it.
+  const psCmd = "SID=$(ps -o sid= -p $$ | tr -d ' '); ps -eo sid,user,pid,pcpu,pmem,args --sort=-pcpu --no-headers | awk -v s=\"$SID\" '$1 != s && $0 !~ /sshd-session:/ {cmd=\"\"; for(i=6;i<=NF;i++) cmd=cmd\" \"$i; printf \"proc=%s|%s|%s|%s|%s\\n\", $2, $3, $4, $5, substr(cmd,2,80)}' | head -5";
+  let script = psCmd;
+  if (services.length) {
+    const svcArgs = services.map((s) => `'${s}'`).join(' ');
+    script = `for s in ${svcArgs}; do printf "svc=%s=%s\\n" "$s" "$(systemctl is-active "$s" 2>/dev/null || echo unknown)"; done; ${psCmd}`;
+  }
+
+  return new Promise((resolve) => {
+    const args = [
+      '-F', '/dev/null',
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=5',
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'UserKnownHostsFile=/dev/null',
+      '-o', 'LogLevel=ERROR',
+      '-p', String(port || 22),
+      `${user}@${target}`,
+      script,
+    ];
+    execFile('ssh', args, { timeout: 10000 }, (err, stdout) => {
+      if (err) return resolve({ ok: false });
+      const svcOut = [];
+      const procOut = [];
+      for (const line of stdout.split('\n')) {
+        const sm = line.match(/^svc=([^=]+)=(.+)$/);
+        if (sm) { svcOut.push({ name: sm[1], state: sm[2].trim() }); continue; }
+        const pm = line.match(/^proc=([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/);
+        if (pm) {
+          procOut.push({
+            user: pm[1],
+            pid: parseInt(pm[2], 10),
+            cpu: parseFloat(pm[3]),
+            ram: parseFloat(pm[4]),
+            command: pm[5].trim(),
+          });
+        }
+      }
+      resolve({ ok: true, services: svcOut, top_processes: procOut });
     });
   });
 }

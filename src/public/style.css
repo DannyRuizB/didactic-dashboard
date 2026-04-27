@@ -242,7 +242,8 @@ body {
   border-color: var(--danger);
 }
 
-.card .chart-toggle {
+.card .chart-toggle,
+.card .details-toggle {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
@@ -255,7 +256,8 @@ body {
   line-height: 1;
   transition: color 0.15s, border-color 0.15s;
 }
-.card .chart-toggle:hover {
+.card .chart-toggle:hover,
+.card .details-toggle:hover {
   color: var(--fg-strong);
   border-color: var(--fg);
 }
@@ -271,10 +273,96 @@ body {
 .chart-panel .chart-pct  { height: 280px !important; }
 .chart-panel .chart-load { height: 140px !important; margin-top: 0.6rem; }
 
-/* When a card's chart panel is open, let the card span the whole grid so the
-   charts have room to breathe. */
-.card:has(.chart-panel:not([hidden])) {
+/* When a card's chart or details panel is open, let the card span the whole
+   grid so contents have room to breathe. */
+.card:has(.chart-panel:not([hidden])),
+.card:has(.details-panel:not([hidden])) {
   grid-column: 1 / -1;
+}
+
+.details-panel {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+}
+.details-panel[hidden] { display: none; }
+.details-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.4rem;
+}
+.details-refresh {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  transition: color 0.15s, border-color 0.15s;
+}
+.details-refresh:hover { color: var(--fg); border-color: var(--fg-dim); }
+.details-h {
+  font-size: 0.75rem;
+  color: var(--fg-strong);
+  letter-spacing: 1.5px;
+  margin: 0.6rem 0 0.4rem;
+  font-weight: normal;
+}
+.details-h:first-of-type { margin-top: 0; }
+.details-loading,
+.details-empty,
+.details-error {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-style: italic;
+}
+.details-error { color: var(--danger); }
+
+.svc-list { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.svc-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.svc-name  { color: var(--fg); }
+.svc-state { color: var(--muted); font-size: 0.7rem; letter-spacing: 1px; }
+.svc-active   { border-color: var(--fg-dim); }
+.svc-active   .svc-state { color: var(--fg); }
+.svc-inactive { border-color: var(--muted); }
+.svc-inactive .svc-state { color: var(--muted); }
+.svc-failed   { border-color: var(--danger); }
+.svc-failed   .svc-state { color: var(--danger); }
+.svc-unknown  { border-style: dashed; }
+
+.proc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.proc-table th,
+.proc-table td {
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.proc-table th {
+  color: var(--muted);
+  font-weight: normal;
+  letter-spacing: 1px;
+  font-size: 0.7rem;
+}
+.proc-table td { color: var(--fg); }
+.proc-cmd {
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60ch;
 }
 
 .window-picker {

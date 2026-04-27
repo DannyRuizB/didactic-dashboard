@@ -3,15 +3,20 @@ const errorBox   = document.getElementById('error-box');
 const form       = document.getElementById('add-form');
 const ipInput    = document.getElementById('ip-input');
 const checkType  = document.getElementById('check-type');
-const userInput  = document.getElementById('user-input');
-const portInput  = document.getElementById('port-input');
-const nameInput  = document.getElementById('name-input');
-const demoBanner = document.getElementById('demo-banner');
+const userInput     = document.getElementById('user-input');
+const portInput     = document.getElementById('port-input');
+const servicesInput = document.getElementById('services-input');
+const nameInput     = document.getElementById('name-input');
+const demoBanner    = document.getElementById('demo-banner');
 
 // id -> window ('1h'|'24h'|'7d'|'30d') for hosts whose chart panel is open
 const expanded = new Map();
 // id -> { pct: Chart, load: Chart } so we can destroy them before re-rendering
 const charts = new Map();
+// Set of host ids whose details panel is open
+const detailsOpen = new Set();
+// id -> last details payload (cached so loadHosts() can re-render without a new SSH fetch)
+const detailsCache = new Map();
 
 async function loadConfig() {
   try {
@@ -116,6 +121,9 @@ function renderHost(h) {
   const chartToggle = h.check_type === 'ssh'
     ? `<button class="chart-toggle" data-id="${h.id}" title="Toggle history">chart</button>`
     : '';
+  const detailsToggle = h.check_type === 'ssh'
+    ? `<button class="details-toggle" data-id="${h.id}" title="Toggle details">details</button>`
+    : '';
 
   const isOpen = expanded.has(h.id);
   const activeWin = expanded.get(h.id) || '1h';
@@ -133,18 +141,30 @@ function renderHost(h) {
       </div>`
     : '';
 
+  const detailsPanel = h.check_type === 'ssh'
+    ? `
+      <div class="details-panel" id="details-panel-${h.id}"${detailsOpen.has(h.id) ? '' : ' hidden'}>
+        <div class="details-actions">
+          <button class="details-refresh" data-id="${h.id}">refresh</button>
+        </div>
+        <div class="details-body" id="details-body-${h.id}"><p class="details-loading">loading…</p></div>
+      </div>`
+    : '';
+
   return `
     <article class="card ${statusClass}">
       <header>
         <span class="dot"></span>
         <span class="status">${statusText}</span>
         <span class="mode">${mode}</span>
+        ${detailsToggle}
         ${chartToggle}
         <button class="delete" data-id="${h.id}" title="Remove host" aria-label="Remove host">x</button>
       </header>
       <h2>${title}</h2>
       ${sub}
       ${metricsHtml}
+      ${detailsPanel}
       ${chartPanel}
       <footer>
         <span class="latency">${latency}</span>
@@ -238,6 +258,68 @@ async function drawChart(id) {
   charts.set(id, { pct: pctChart, load: loadChart });
 }
 
+function renderDetails(id, data) {
+  const body = document.getElementById(`details-body-${id}`);
+  if (!body) return;
+
+  let svcHtml = '';
+  if (data.services && data.services.length) {
+    svcHtml = `
+      <h3 class="details-h">services</h3>
+      <ul class="svc-list">
+        ${data.services.map((s) => {
+          const state = (s.state || 'unknown').toLowerCase();
+          const cls = state === 'active' ? 'svc-active'
+                    : state === 'inactive' ? 'svc-inactive'
+                    : state === 'failed' ? 'svc-failed'
+                    : 'svc-unknown';
+          return `<li class="svc-item ${cls}"><span class="svc-name">${escapeHTML(s.name)}</span><span class="svc-state">${escapeHTML(state)}</span></li>`;
+        }).join('')}
+      </ul>`;
+  } else {
+    svcHtml = `<p class="details-empty">No services configured. Edit the host to add some.</p>`;
+  }
+
+  let procHtml = '';
+  if (data.top_processes && data.top_processes.length) {
+    procHtml = `
+      <h3 class="details-h">top processes</h3>
+      <table class="proc-table">
+        <thead><tr><th>user</th><th>pid</th><th>cpu%</th><th>ram%</th><th>command</th></tr></thead>
+        <tbody>
+          ${data.top_processes.map((p) => `
+            <tr>
+              <td>${escapeHTML(p.user)}</td>
+              <td>${p.pid}</td>
+              <td>${isNaN(p.cpu) ? '--' : p.cpu.toFixed(1)}</td>
+              <td>${isNaN(p.ram) ? '--' : p.ram.toFixed(1)}</td>
+              <td class="proc-cmd">${escapeHTML(p.command)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  body.innerHTML = svcHtml + procHtml;
+}
+
+async function loadDetails(id) {
+  const body = document.getElementById(`details-body-${id}`);
+  if (body) body.innerHTML = '<p class="details-loading">loading…</p>';
+  try {
+    const res = await fetch(`/api/hosts/${id}/details`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (body) body.innerHTML = `<p class="details-error">${escapeHTML(data.error || 'Failed to load details')}</p>`;
+      return;
+    }
+    const data = await res.json();
+    detailsCache.set(id, data);
+    renderDetails(id, data);
+  } catch {
+    if (body) body.innerHTML = '<p class="details-error">Network error</p>';
+  }
+}
+
 async function loadHosts() {
   try {
     const res = await fetch('/api/hosts');
@@ -259,6 +341,15 @@ async function loadHosts() {
       if (!liveIds.has(id)) { expanded.delete(id); continue; }
       drawChart(id);
     }
+    for (const id of detailsOpen) {
+      if (!liveIds.has(id)) {
+        detailsOpen.delete(id);
+        detailsCache.delete(id);
+        continue;
+      }
+      const cached = detailsCache.get(id);
+      if (cached) renderDetails(id, cached);
+    }
   } catch {
     showError('Could not load hosts');
   }
@@ -272,11 +363,38 @@ hostsEl.addEventListener('click', async (e) => {
     try {
       const res = await fetch(`/api/hosts/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
-      expanded.delete(parseInt(id, 10));
+      const numId = parseInt(id, 10);
+      expanded.delete(numId);
+      detailsOpen.delete(numId);
+      detailsCache.delete(numId);
       loadHosts();
     } catch {
       showError('Could not delete host');
     }
+    return;
+  }
+
+  const detailsBtn = e.target.closest('.details-toggle');
+  if (detailsBtn) {
+    const id = parseInt(detailsBtn.dataset.id, 10);
+    const panel = document.getElementById(`details-panel-${id}`);
+    if (!panel) return;
+    if (detailsOpen.has(id)) {
+      detailsOpen.delete(id);
+      panel.hidden = true;
+    } else {
+      detailsOpen.add(id);
+      panel.hidden = false;
+      const cached = detailsCache.get(id);
+      if (cached) renderDetails(id, cached); else loadDetails(id);
+    }
+    return;
+  }
+
+  const refreshBtn = e.target.closest('.details-refresh');
+  if (refreshBtn) {
+    const id = parseInt(refreshBtn.dataset.id, 10);
+    loadDetails(id);
     return;
   }
 
@@ -311,26 +429,33 @@ hostsEl.addEventListener('click', async (e) => {
   }
 });
 
+let lastCheckType = checkType.value;
 function updateFormFields() {
   const t = checkType.value;
   userInput.hidden = (t !== 'ssh');
   portInput.hidden = (t === 'icmp');
+  servicesInput.hidden = (t !== 'ssh');
   userInput.required = (t === 'ssh');
   portInput.required = (t === 'tcp');
   portInput.placeholder = (t === 'ssh') ? 'port (default 22)' : 'port';
-  if (t !== 'ssh')  userInput.value = '';
-  if (t === 'icmp') portInput.value = '';
+  if (t !== 'ssh')  { userInput.value = ''; servicesInput.value = ''; }
+  // Wipe the port whenever the check type changes — the meaning of "port"
+  // differs between TCP (required) and SSH (defaults to 22), so a stale value
+  // from a previous selection would silently target the wrong port.
+  if (t !== lastCheckType) portInput.value = '';
+  lastCheckType = t;
 }
 checkType.addEventListener('change', updateFormFields);
 updateFormFields();
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const ip   = ipInput.value.trim();
-  const type = checkType.value;
-  const user = userInput.value.trim();
-  const port = portInput.value.trim();
-  const name = nameInput.value.trim();
+  const ip       = ipInput.value.trim();
+  const type     = checkType.value;
+  const user     = userInput.value.trim();
+  const port     = portInput.value.trim();
+  const services = servicesInput.value.trim();
+  const name     = nameInput.value.trim();
   if (!ip) return;
   try {
     const res = await fetch('/api/hosts', {
@@ -342,6 +467,7 @@ form.addEventListener('submit', async (e) => {
         port: port || undefined,
         check_type: type,
         ssh_user: user || undefined,
+        services: services || undefined,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -352,6 +478,7 @@ form.addEventListener('submit', async (e) => {
     ipInput.value = '';
     userInput.value = '';
     portInput.value = '';
+    servicesInput.value = '';
     nameInput.value = '';
     checkType.value = 'icmp';
     updateFormFields();
