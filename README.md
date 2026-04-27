@@ -44,8 +44,11 @@ A public demo with pre-seeded hosts (Google, Cloudflare, GitHub, Docker Hub, exa
 docker run -d --name didactic-dashboard \
   -p 3000:3000 \
   -v didactic-data:/app/data \
+  -v ~/.ssh:/root/.ssh:ro \
   dannyruizb/didactic-dashboard:latest
 ```
+
+The `-v ~/.ssh:/root/.ssh:ro` mount lets the container reuse your existing SSH keys for the SSH check mode. Drop that line if you only plan to use ICMP / TCP checks.
 
 ### Option B — clone and build
 
