@@ -258,6 +258,15 @@ async function drawChart(id) {
   charts.set(id, { pct: pctChart, load: loadChart });
 }
 
+function humanBytes(n) {
+  if (n == null || isNaN(n)) return '--';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0;
+  let v = Number(n);
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i += 1; }
+  return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${u[i]}`;
+}
+
 function renderDetails(id, data) {
   const body = document.getElementById(`details-body-${id}`);
   if (!body) return;
@@ -299,7 +308,39 @@ function renderDetails(id, data) {
       </table>`;
   }
 
-  body.innerHTML = svcHtml + procHtml;
+  let userHtml = '';
+  if (data.users && data.users.length) {
+    userHtml = `
+      <h3 class="details-h">logged-in users</h3>
+      <table class="user-table">
+        <thead><tr><th>user</th><th>tty</th><th>from</th></tr></thead>
+        <tbody>
+          ${data.users.map((u) => `
+            <tr>
+              <td>${escapeHTML(u.user)}</td>
+              <td>${escapeHTML(u.tty || '--')}</td>
+              <td>${escapeHTML(u.from || 'local')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } else {
+    userHtml = `<h3 class="details-h">logged-in users</h3><p class="details-empty">No interactive sessions.</p>`;
+  }
+
+  let netHtml = '';
+  if (data.network) {
+    netHtml = `
+      <h3 class="details-h">network</h3>
+      <div class="net-block">
+        <div class="net-iface">interface <span class="net-iface-name">${escapeHTML(data.network.interface)}</span></div>
+        <div class="net-stats">
+          <div class="net-stat"><span class="net-stat-label">RX</span><span class="net-stat-value">${humanBytes(data.network.rx_bytes)}</span></div>
+          <div class="net-stat"><span class="net-stat-label">TX</span><span class="net-stat-value">${humanBytes(data.network.tx_bytes)}</span></div>
+        </div>
+      </div>`;
+  }
+
+  body.innerHTML = svcHtml + procHtml + userHtml + netHtml;
 }
 
 async function loadDetails(id) {

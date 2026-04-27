@@ -141,6 +141,8 @@ app.get('/api/hosts/:id/details', async (req, res) => {
   res.json({
     services: result.services,
     top_processes: result.top_processes,
+    users: result.users,
+    network: result.network,
   });
 });
 
@@ -240,10 +242,39 @@ function sshCheck(target, user, port) {
   });
 }
 
-// On-demand details probe: services state + top 5 processes by CPU.
-// Service names are validated/sanitised at write time, so they are safe
-// to interpolate into the remote shell script. The output uses prefixes
-// `svc=name=state` and `proc=user|pid|cpu|ram|cmd` for unambiguous parsing.
+// `who` output varies between distros (Debian 13 prefixes the tty with `sshd`,
+// older distros don't, the `from` part may be missing for local logins). This
+// parser is permissive: pull the `(from)` from the end of the line if present,
+// take the first token as user, and pick the first remaining token that looks
+// like a tty (pts/N, ttyN, seat0, console, tmux*) — falling back to the
+// second token if nothing matches.
+function parseWhoLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  let rest = trimmed;
+  let from = 'local';
+  const fromMatch = rest.match(/\(([^)]+)\)\s*$/);
+  if (fromMatch) {
+    from = fromMatch[1];
+    rest = rest.slice(0, fromMatch.index).trim();
+  }
+  const tokens = rest.split(/\s+/);
+  if (!tokens.length) return null;
+  const user = tokens[0];
+  const ttyRegex = /^(pts\/\d+|tty\d+|seat\d+|console|tmux\S*)$/;
+  const tty = tokens.slice(1).find((t) => ttyRegex.test(t)) || tokens[1] || '';
+  // `who` on Debian 13 emits a row per sshd-session (no pty) for every active
+  // SSH connection — including the one our probe just opened. Drop those so
+  // the panel shows real interactive sessions only.
+  if (tty === 'sshd') return null;
+  return { user, tty, from };
+}
+
+// On-demand details probe: services state + top 5 processes + logged-in
+// users + default-iface RX/TX. Service names are validated/sanitised at
+// write time, so they are safe to interpolate into the remote shell script.
+// The output uses prefixes `svc=`, `proc=`, `usr=`, `net=` so we can parse
+// each line unambiguously regardless of order.
 function detailsCheck(target, user, port, servicesCsv) {
   const services = (servicesCsv || '')
     .split(',')
@@ -255,10 +286,21 @@ function detailsCheck(target, user, port, servicesCsv) {
   // shell ($$) plus any sshd-session helpers, so the table doesn't get
   // dominated by the probe's own ps/awk/bash and the sshd that hosts it.
   const psCmd = "SID=$(ps -o sid= -p $$ | tr -d ' '); ps -eo sid,user,pid,pcpu,pmem,args --sort=-pcpu --no-headers | awk -v s=\"$SID\" '$1 != s && $0 !~ /sshd-session:/ {cmd=\"\"; for(i=6;i<=NF;i++) cmd=cmd\" \"$i; printf \"proc=%s|%s|%s|%s|%s\\n\", $2, $3, $4, $5, substr(cmd,2,80)}' | head -5";
-  let script = psCmd;
+
+  // Logged-in users (raw `who` lines, prefixed so we can pick them out from
+  // mixed stdout). The format of `who` varies between distros — we parse the
+  // line in JS rather than trying to be smart in awk.
+  const whoCmd = "who 2>/dev/null | sed 's/^/usr=/'";
+
+  // Default-route interface + cumulative RX/TX bytes from /sys/class/net.
+  // If there is no default route (or `ip` is missing), this block prints
+  // nothing and the network section is omitted in the response.
+  const netCmd = "IF=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}'); if [ -n \"$IF\" ]; then RX=$(cat /sys/class/net/\"$IF\"/statistics/rx_bytes 2>/dev/null || echo 0); TX=$(cat /sys/class/net/\"$IF\"/statistics/tx_bytes 2>/dev/null || echo 0); printf 'net=%s|%s|%s\\n' \"$IF\" \"$RX\" \"$TX\"; fi";
+
+  let script = `${psCmd}; ${whoCmd}; ${netCmd}`;
   if (services.length) {
     const svcArgs = services.map((s) => `'${s}'`).join(' ');
-    script = `for s in ${svcArgs}; do printf "svc=%s=%s\\n" "$s" "$(systemctl is-active "$s" 2>/dev/null || echo unknown)"; done; ${psCmd}`;
+    script = `for s in ${svcArgs}; do printf "svc=%s=%s\\n" "$s" "$(systemctl is-active "$s" 2>/dev/null || echo unknown)"; done; ${script}`;
   }
 
   return new Promise((resolve) => {
@@ -277,6 +319,8 @@ function detailsCheck(target, user, port, servicesCsv) {
       if (err) return resolve({ ok: false });
       const svcOut = [];
       const procOut = [];
+      const userOut = [];
+      let network = null;
       for (const line of stdout.split('\n')) {
         const sm = line.match(/^svc=([^=]+)=(.+)$/);
         if (sm) { svcOut.push({ name: sm[1], state: sm[2].trim() }); continue; }
@@ -289,9 +333,30 @@ function detailsCheck(target, user, port, servicesCsv) {
             ram: parseFloat(pm[4]),
             command: pm[5].trim(),
           });
+          continue;
+        }
+        const um = line.match(/^usr=(.+)$/);
+        if (um) {
+          const parsed = parseWhoLine(um[1]);
+          if (parsed) userOut.push(parsed);
+          continue;
+        }
+        const nm = line.match(/^net=([^|]+)\|(\d+)\|(\d+)$/);
+        if (nm) {
+          network = {
+            interface: nm[1],
+            rx_bytes: parseInt(nm[2], 10),
+            tx_bytes: parseInt(nm[3], 10),
+          };
         }
       }
-      resolve({ ok: true, services: svcOut, top_processes: procOut });
+      resolve({
+        ok: true,
+        services: svcOut,
+        top_processes: procOut,
+        users: userOut,
+        network,
+      });
     });
   });
 }

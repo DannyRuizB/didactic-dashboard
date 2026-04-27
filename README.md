@@ -12,7 +12,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.4.0 released, more features coming.
+> Work in progress — v0.4.1 released, more features coming.
 
 ## Screenshots
 
@@ -28,7 +28,7 @@ History charts (click the `chart` button on any SSH host):
 
 ![History charts](docs/screenshot-charts.png)
 
-Host details — systemd services + top processes (click the `details` button on any SSH host):
+Host details — systemd services + top processes + logged-in users + network traffic (click the `details` button on any SSH host):
 
 ![Host details](docs/screenshot-details.png)
 
@@ -64,10 +64,12 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.4.0 (current)
+### v0.4.1 (current)
 - **Host details panel** (SSH only): click the `details` button on any SSH card to see
   - **systemd services**: live `active` / `inactive` / `failed` state for any units you configured for that host
   - **top 5 processes** by CPU (the probe filters its own session out, so you see real workload)
+  - **logged-in users**: who, on which tty, from where (own SSH probe filtered out)
+  - **network traffic**: default-route interface plus cumulative RX / TX bytes, humanised (KB / MB / GB)
 - Per-host services list configured at add time (comma-separated unit names, e.g. `ssh,cron,nginx`)
 - Three check modes per host:
   - **ICMP** — classic ping (default)
@@ -81,7 +83,6 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 - Warm amber theme with light / dark toggle (persists in localStorage)
 
 ### Planned
-- v0.4.1 — Host detail panel: connected users + network traffic
 - v0.5 — Alerts (warning / critical) via email or webhook
 - v0.6 — Auto-discovery on local network
 
@@ -102,7 +103,7 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 - [x] v0.2 — SSH-based metrics (CPU, RAM, disk, load, uptime) with live bars
 - [x] v0.3 — History charts (1h / 24h / 7d / 30d) per SSH host
 - [x] v0.4.0 — Host detail panel: systemd services + top processes
-- [ ] v0.4.1 — Host detail panel: connected users + network traffic
+- [x] v0.4.1 — Host detail panel: connected users + network traffic
 - [ ] v0.5 — Alerts (warning / critical) via email or webhook
 - [ ] v0.6 — Auto-discovery on local network
 

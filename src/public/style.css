@@ -339,30 +339,75 @@ body {
 .svc-failed   .svc-state { color: var(--danger); }
 .svc-unknown  { border-style: dashed; }
 
-.proc-table {
+.proc-table,
+.user-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.75rem;
 }
 .proc-table th,
-.proc-table td {
+.proc-table td,
+.user-table th,
+.user-table td {
   text-align: left;
   padding: 0.25rem 0.5rem;
   border-bottom: 1px solid var(--border);
 }
-.proc-table th {
+.proc-table th,
+.user-table th {
   color: var(--muted);
   font-weight: normal;
   letter-spacing: 1px;
   font-size: 0.7rem;
 }
-.proc-table td { color: var(--fg); }
+.proc-table td,
+.user-table td { color: var(--fg); }
 .proc-cmd {
   font-family: var(--mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 60ch;
+}
+
+.net-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.net-iface {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.net-iface-name {
+  color: var(--fg-strong);
+  font-family: var(--mono);
+  margin-left: 0.3rem;
+}
+.net-stats {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.net-stat {
+  flex: 1;
+  min-width: 140px;
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.7rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.net-stat-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 1.5px;
+}
+.net-stat-value {
+  color: var(--fg-strong);
+  font-size: 1.05rem;
+  font-family: var(--mono);
 }
 
 .window-picker {
