@@ -12,7 +12,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.4.1 released, more features coming.
+> Work in progress — v0.4.2 released, more features coming.
 
 ## Screenshots
 
@@ -64,7 +64,8 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.4.1 (current)
+### v0.4.2 (current)
+- **Redesigned UI**: sober slate + blue palette, system sans-serif for labels and titles, monospace kept for technical data (IPs, metrics, commands, services). Same dark / light toggle, less eye strain, more professional look.
 - **Host details panel** (SSH only): click the `details` button on any SSH card to see
   - **systemd services**: live `active` / `inactive` / `failed` state for any units you configured for that host
   - **top 5 processes** by CPU (the probe filters its own session out, so you see real workload)
@@ -104,6 +105,7 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 - [x] v0.3 — History charts (1h / 24h / 7d / 30d) per SSH host
 - [x] v0.4.0 — Host detail panel: systemd services + top processes
 - [x] v0.4.1 — Host detail panel: connected users + network traffic
+- [x] v0.4.2 — UI redesign (slate + blue palette, sans / mono mix)
 - [ ] v0.5 — Alerts (warning / critical) via email or webhook
 - [ ] v0.6 — Auto-discovery on local network
 
