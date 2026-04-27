@@ -34,7 +34,7 @@ Host details — systemd services + top processes (click the `details` button on
 
 ## Live demo
 
-A public demo with pre-seeded hosts (Google, Cloudflare, GitHub, Docker Hub, example.com) is running at **https://didactic-dashboard.onrender.com** — hosted on Render free tier, so the first request after idle may take ~30s to wake up. SSH check mode is disabled on the demo; for that, self-host.
+A public demo with pre-seeded hosts (Google, Cloudflare, GitHub, Docker Hub, example.com) is running at **https://didactic-dashboard.onrender.com** — hosted on Render free tier, so the first request after idle may take ~30s to wake up. SSH check mode is disabled on the demo, and only **public** hosts work — LAN IPs (`192.168.x`, `10.x`...) are unreachable from the cloud sandbox. To monitor your own network, self-host with the Quick start above.
 
 ## Quick start
 
