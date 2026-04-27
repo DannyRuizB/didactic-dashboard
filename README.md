@@ -12,7 +12,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.4.2 released, more features coming.
+> Work in progress — v0.5.0 released, more features coming.
 
 ## Screenshots
 
@@ -31,6 +31,10 @@ History charts (click the `chart` button on any SSH host):
 Host details — systemd services + top processes + logged-in users + network traffic (click the `details` button on any SSH host):
 
 ![Host details](docs/screenshot-details.png)
+
+Active alerts — bell icon in the header opens a dropdown with hosts crossing CPU / RAM / disk thresholds or going DOWN:
+
+![Active alerts](docs/screenshot-alerts.png)
 
 ## Live demo
 
@@ -64,8 +68,11 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.4.2 (current)
-- **Redesigned UI**: sober slate + blue palette, system sans-serif for labels and titles, monospace kept for technical data (IPs, metrics, commands, services). Same dark / light toggle, less eye strain, more professional look.
+### v0.5.0 (current)
+- **Alerts engine**: every check evaluates the host against thresholds and fires `warning` / `critical` alerts when a metric crosses them. A bell badge in the header counts active alerts and opens a dropdown listing them; affected cards get a small `!` indicator. A consecutive-failure counter (default 2) prevents single-blip false positives on the host-DOWN alert.
+- **Webhook notifications**: set `ALERT_WEBHOOK_URL` and the dashboard POSTs a JSON payload (`event`, `host`, `metric`, `level`, `value`, `threshold`, `timestamp`) on every alert transition (fired / cleared). Works with Discord, Slack, ntfy.sh, custom endpoints — anything that accepts a webhook.
+- **Configurable thresholds**: `CPU_WARN`, `CPU_CRIT`, `RAM_WARN`, `RAM_CRIT`, `DISK_WARN`, `DISK_CRIT` env vars (sensible defaults: 70/90 for CPU, 80/95 for RAM, 80/90 for disk).
+- **Redesigned UI** (v0.4.2): sober slate + blue palette, system sans-serif for labels and titles, monospace kept for technical data (IPs, metrics, commands, services). Same dark / light toggle, less eye strain, more professional look.
 - **Host details panel** (SSH only): click the `details` button on any SSH card to see
   - **systemd services**: live `active` / `inactive` / `failed` state for any units you configured for that host
   - **top 5 processes** by CPU (the probe filters its own session out, so you see real workload)
@@ -84,7 +91,8 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 - Warm amber theme with light / dark toggle (persists in localStorage)
 
 ### Planned
-- v0.5 — Alerts (warning / critical) via email or webhook
+- v0.5.1 — Alerts via email (SMTP)
+- v0.5.2 — Per-host threshold overrides from the UI
 - v0.6 — Auto-discovery on local network
 
 ## Why
@@ -106,7 +114,9 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 - [x] v0.4.0 — Host detail panel: systemd services + top processes
 - [x] v0.4.1 — Host detail panel: connected users + network traffic
 - [x] v0.4.2 — UI redesign (slate + blue palette, sans / mono mix)
-- [ ] v0.5 — Alerts (warning / critical) via email or webhook
+- [x] v0.5.0 — Alerts engine + webhook notifications
+- [ ] v0.5.1 — Alerts via email (SMTP)
+- [ ] v0.5.2 — Per-host threshold overrides from the UI
 - [ ] v0.6 — Auto-discovery on local network
 
 ## SSH check setup
@@ -158,11 +168,46 @@ The target host needs an SSH server running (`sudo apt install openssh-server` o
 
 Environment variables (set in `docker-compose.yml`):
 
-| Variable        | Default                   | Meaning                          |
-|-----------------|---------------------------|----------------------------------|
-| `PORT`          | `3000`                    | HTTP port                        |
-| `DB_PATH`       | `/app/data/dashboard.db`  | SQLite file path                 |
-| `PING_INTERVAL` | `10000`                   | Ping period in ms                |
+| Variable             | Default                   | Meaning                                              |
+|----------------------|---------------------------|------------------------------------------------------|
+| `PORT`               | `3000`                    | HTTP port                                            |
+| `DB_PATH`            | `/app/data/dashboard.db`  | SQLite file path                                     |
+| `PING_INTERVAL`      | `10000`                   | Ping period in ms                                    |
+| `CPU_WARN`           | `70`                      | CPU % threshold for `warning` alert                  |
+| `CPU_CRIT`           | `90`                      | CPU % threshold for `critical` alert                 |
+| `RAM_WARN`           | `80`                      | RAM % threshold for `warning` alert                  |
+| `RAM_CRIT`           | `95`                      | RAM % threshold for `critical` alert                 |
+| `DISK_WARN`          | `80`                      | Disk % threshold for `warning` alert                 |
+| `DISK_CRIT`          | `90`                      | Disk % threshold for `critical` alert                |
+| `ALERT_DOWN_AFTER`   | `2`                       | Consecutive failed checks before firing host-DOWN    |
+| `ALERT_WEBHOOK_URL`  | (unset)                   | If set, POST a JSON payload on each alert transition |
+
+## Alerts
+
+The dashboard fires `warning` / `critical` alerts in three situations:
+
+- A host has been DOWN for `ALERT_DOWN_AFTER` consecutive checks (always `critical`).
+- An SSH host's CPU / RAM / disk usage crosses one of the threshold env vars.
+- A previously firing alert clears (e.g. CPU drops back below `CPU_WARN`, host comes back UP).
+
+Active alerts show up in the bell badge in the header and as a small `!` on each affected card.
+
+If you set `ALERT_WEBHOOK_URL`, the dashboard sends a `POST` with this JSON body on every `alert.fired` and `alert.cleared` transition:
+
+```json
+{
+  "event": "alert.fired",
+  "alert_id": 42,
+  "host": { "id": 3, "ip": "10.0.0.5", "name": "web-01", "check_type": "ssh" },
+  "metric": "cpu",
+  "level": "critical",
+  "value": 92.4,
+  "threshold": 90,
+  "timestamp": "2026-04-27T12:34:56.789Z"
+}
+```
+
+This is provider-agnostic — point it at a Discord webhook, a Slack incoming webhook, an [ntfy.sh](https://ntfy.sh) topic, or your own service. For Discord/Slack you may want a small relay that reshapes the payload to their expected schema; the JSON above is the source of truth.
 
 ## License
 

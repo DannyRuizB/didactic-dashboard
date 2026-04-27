@@ -18,6 +18,13 @@ const detailsOpen = new Set();
 // id -> last details payload (cached so loadHosts() can re-render without a new SSH fetch)
 const detailsCache = new Map();
 
+const alertsBtn      = document.getElementById('alerts-button');
+const alertsCountEl  = document.getElementById('alerts-count');
+const alertsDropdown = document.getElementById('alerts-dropdown');
+const alertsListEl   = document.getElementById('alerts-list');
+// host_id -> highest level among its active alerts ('warning' | 'critical')
+let activeAlertsByHost = new Map();
+
 async function loadConfig() {
   try {
     const res = await fetch('/api/config');
@@ -42,6 +49,67 @@ function escapeHTML(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+function alertMetricLabel(metric) {
+  if (metric === 'status') return 'host DOWN';
+  if (metric === 'cpu') return 'CPU';
+  if (metric === 'ram') return 'RAM';
+  if (metric === 'disk') return 'Disk';
+  return metric;
+}
+
+async function loadAlerts() {
+  try {
+    const res = await fetch('/api/alerts');
+    if (!res.ok) return;
+    const { alerts } = await res.json();
+    renderAlerts(alerts || []);
+  } catch { /* keep last-known state */ }
+}
+
+function renderAlerts(alerts) {
+  // Update per-host map (highest level wins: critical > warning).
+  const byHost = new Map();
+  for (const a of alerts) {
+    const prev = byHost.get(a.host_id);
+    if (prev !== 'critical') byHost.set(a.host_id, a.level);
+  }
+  activeAlertsByHost = byHost;
+
+  // Badge counter.
+  if (alerts.length === 0) {
+    alertsBtn.classList.remove('has-alerts', 'has-critical');
+    alertsCountEl.hidden = true;
+  } else {
+    alertsBtn.classList.add('has-alerts');
+    if (alerts.some((a) => a.level === 'critical')) {
+      alertsBtn.classList.add('has-critical');
+    } else {
+      alertsBtn.classList.remove('has-critical');
+    }
+    alertsCountEl.hidden = false;
+    alertsCountEl.textContent = String(alerts.length);
+  }
+
+  // Dropdown content.
+  if (alerts.length === 0) {
+    alertsListEl.innerHTML = '<p class="alerts-empty">No active alerts.</p>';
+  } else {
+    alertsListEl.innerHTML = alerts.map((a) => {
+      const valueText = a.value != null && !isNaN(a.value)
+        ? `${a.value.toFixed(1)}% (≥ ${a.threshold}%)`
+        : '';
+      return `
+        <div class="alert-row alert-${a.level}">
+          <span class="alert-level">${a.level}</span>
+          <div class="alert-body">
+            <div class="alert-host">${escapeHTML(a.name || a.ip)}</div>
+            <div class="alert-meta">${escapeHTML(alertMetricLabel(a.metric))}${valueText ? ` · ${valueText}` : ''} · ${escapeHTML(relativeTime(a.fired_at))}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
 }
 
 function relativeTime(ts) {
@@ -85,6 +153,11 @@ function renderHost(h) {
     if (h.last_ok) { statusClass = 'up';   statusText = 'UP'; }
     else           { statusClass = 'down'; statusText = 'DOWN'; }
   }
+
+  const alertLevel = activeAlertsByHost.get(h.id);
+  const alertBadge = alertLevel
+    ? `<span class="card-alert alert-${alertLevel}" title="${alertLevel} alert active">!</span>`
+    : '';
 
   let mode;
   if      (h.check_type === 'ssh') mode = `SSH/${h.port || 22}`;
@@ -156,6 +229,7 @@ function renderHost(h) {
       <header>
         <span class="dot"></span>
         <span class="status">${statusText}</span>
+        ${alertBadge}
         <span class="mode">${mode}</span>
         ${detailsToggle}
         ${chartToggle}
@@ -543,6 +617,21 @@ themeToggle.addEventListener('click', () => {
 });
 renderThemeButton();
 
+alertsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const open = !alertsDropdown.hidden;
+  alertsDropdown.hidden = open;
+  alertsBtn.setAttribute('aria-expanded', String(!open));
+});
+document.addEventListener('click', (e) => {
+  if (!alertsDropdown.hidden && !e.target.closest('#alerts-bell')) {
+    alertsDropdown.hidden = true;
+    alertsBtn.setAttribute('aria-expanded', 'false');
+  }
+});
+
 loadConfig();
+loadAlerts();
 loadHosts();
-setInterval(loadHosts, 5000);
+setInterval(loadHosts,  5000);
+setInterval(loadAlerts, 7000);

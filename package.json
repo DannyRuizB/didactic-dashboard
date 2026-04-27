@@ -1,6 +1,6 @@
 {
   "name": "didactic-dashboard",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Simple self-hosted monitoring dashboard",
   "main": "src/server.js",
   "scripts": {

@@ -16,6 +16,17 @@ services:
       - DB_PATH=/app/data/dashboard.db
       - PING_INTERVAL=10000
       - DEMO_MODE=${DEMO_MODE:-false}
+      # Alerts engine — see README "Alerts" section for the full list.
+      # Uncomment ALERT_WEBHOOK_URL to forward alert transitions as JSON
+      # to Discord / Slack / ntfy.sh / your own endpoint.
+      # - CPU_WARN=70
+      # - CPU_CRIT=90
+      # - RAM_WARN=80
+      # - RAM_CRIT=95
+      # - DISK_WARN=80
+      # - DISK_CRIT=90
+      # - ALERT_DOWN_AFTER=2
+      # - ALERT_WEBHOOK_URL=https://example.com/webhook
     restart: unless-stopped
 
 volumes:

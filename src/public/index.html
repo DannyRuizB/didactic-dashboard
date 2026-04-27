@@ -16,9 +16,21 @@
   <header class="page-header">
     <div class="title-row">
       <h1>&gt; didactic-dashboard</h1>
-      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">theme: dark</button>
+      <div class="header-actions">
+        <div class="alerts-bell" id="alerts-bell">
+          <button id="alerts-button" class="alerts-button" type="button" aria-label="Show active alerts" aria-expanded="false">
+            <span class="alerts-icon">!</span>
+            <span class="alerts-count" id="alerts-count" hidden>0</span>
+          </button>
+          <div id="alerts-dropdown" class="alerts-dropdown" hidden>
+            <div class="alerts-dropdown-header">active alerts</div>
+            <div id="alerts-list" class="alerts-list"></div>
+          </div>
+        </div>
+        <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">theme: dark</button>
+      </div>
     </div>
-    <p class="sub">simple network monitor &middot; v0.4.2</p>
+    <p class="sub">simple network monitor &middot; v0.5.0</p>
   </header>
 
   <main>
@@ -48,7 +60,7 @@
   </main>
 
   <footer class="page-footer">
-    <span>didactic-dashboard v0.4.2</span>
+    <span>didactic-dashboard v0.5.0</span>
     <a href="https://github.com/DannyRuizB/didactic-dashboard" target="_blank" rel="noopener">github.com/DannyRuizB/didactic-dashboard</a>
   </footer>
 

@@ -9,6 +9,14 @@ const PING_INTERVAL  = parseInt(process.env.PING_INTERVAL || '10000', 10);
 const DEMO_MODE      = process.env.DEMO_MODE === 'true' || process.env.DEMO_MODE === '1';
 const DEMO_MAX_HOSTS = parseInt(process.env.DEMO_MAX_HOSTS || '15', 10);
 
+const ALERT_THRESHOLDS = {
+  cpu:  { warning: parseFloat(process.env.CPU_WARN  || '70'), critical: parseFloat(process.env.CPU_CRIT  || '90') },
+  ram:  { warning: parseFloat(process.env.RAM_WARN  || '80'), critical: parseFloat(process.env.RAM_CRIT  || '95') },
+  disk: { warning: parseFloat(process.env.DISK_WARN || '80'), critical: parseFloat(process.env.DISK_CRIT || '90') },
+};
+const ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || '';
+const ALERT_DOWN_AFTER  = parseInt(process.env.ALERT_DOWN_AFTER || '2', 10);
+
 const DEMO_SEEDS = [];
 
 const app = express();
@@ -49,6 +57,8 @@ app.get('/api/config', (_req, res) => {
   res.json({
     demo: DEMO_MODE,
     max_hosts: DEMO_MODE ? DEMO_MAX_HOSTS : null,
+    alert_thresholds: ALERT_THRESHOLDS,
+    webhook_configured: !!ALERT_WEBHOOK_URL,
   });
 });
 
@@ -144,6 +154,15 @@ app.get('/api/hosts/:id/details', async (req, res) => {
     users: result.users,
     network: result.network,
   });
+});
+
+app.get('/api/alerts', (req, res) => {
+  const status = req.query.status === 'recent' ? 'recent' : 'active';
+  if (status === 'active') {
+    return res.json({ alerts: db.listActiveAlerts() });
+  }
+  const since = Math.floor(Date.now() / 1000) - 24 * 3600;
+  res.json({ alerts: db.listRecentAlerts(since) });
 });
 
 app.delete('/api/hosts/:id', (req, res) => {
@@ -361,20 +380,118 @@ function detailsCheck(target, user, port, servicesCsv) {
   });
 }
 
+// In-memory consecutive-failure counter, so we don't fire a DOWN alert on
+// a single transient blip. Resets on the first successful check.
+const downCounter = new Map();
+
+function classifyMetric(value, thresholds) {
+  if (value == null || isNaN(value)) return null;
+  if (value >= thresholds.critical) return { level: 'critical', threshold: thresholds.critical };
+  if (value >= thresholds.warning)  return { level: 'warning',  threshold: thresholds.warning };
+  return null;
+}
+
+async function sendWebhook(payload) {
+  if (!ALERT_WEBHOOK_URL) return;
+  try {
+    await fetch(ALERT_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch (e) {
+    console.warn('[alerts] webhook failed:', e.message);
+  }
+}
+
+function alertPayload(event, hostInfo, alert, value) {
+  return {
+    event,
+    alert_id: alert.id,
+    host: {
+      id:         hostInfo.id,
+      ip:         hostInfo.ip,
+      name:       hostInfo.name,
+      check_type: hostInfo.check_type,
+    },
+    metric:    alert.metric,
+    level:     alert.level,
+    value,
+    threshold: alert.threshold,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+async function fireAlert(hostInfo, metric, level, value, threshold) {
+  const id = db.insertAlert(hostInfo.id, metric, level, value, threshold);
+  console.log(`[alerts] FIRED ${level} ${metric} on ${hostInfo.name || hostInfo.ip} (id=${id}, value=${value}, threshold=${threshold})`);
+  await sendWebhook(alertPayload('alert.fired', hostInfo, { id, metric, level, threshold }, value));
+}
+
+async function resolveAlert(alertRow, hostInfo, currentValue) {
+  db.clearAlert(alertRow.id);
+  console.log(`[alerts] CLEARED ${alertRow.level} ${alertRow.metric} on ${hostInfo.name || hostInfo.ip} (id=${alertRow.id})`);
+  await sendWebhook(alertPayload('alert.cleared', hostInfo, alertRow, currentValue));
+}
+
+async function evaluateAlerts(hostInfo, metrics, isUp) {
+  if (isUp) {
+    downCounter.delete(hostInfo.id);
+    const active = db.getActiveAlert(hostInfo.id, 'status');
+    if (active) await resolveAlert(active, hostInfo, null);
+  } else {
+    const count = (downCounter.get(hostInfo.id) || 0) + 1;
+    downCounter.set(hostInfo.id, count);
+    if (count >= ALERT_DOWN_AFTER) {
+      const active = db.getActiveAlert(hostInfo.id, 'status');
+      if (!active) await fireAlert(hostInfo, 'status', 'critical', null, null);
+    }
+  }
+  if (!metrics) return;
+  for (const metric of ['cpu', 'ram', 'disk']) {
+    const value = metrics[metric];
+    const thresholds = ALERT_THRESHOLDS[metric];
+    const newClass = classifyMetric(value, thresholds);
+    const active = db.getActiveAlert(hostInfo.id, metric);
+    if (newClass) {
+      if (!active) {
+        await fireAlert(hostInfo, metric, newClass.level, value, newClass.threshold);
+      } else if (active.level !== newClass.level) {
+        // level changed (warning -> critical or vice versa): close old, open new
+        await resolveAlert(active, hostInfo, value);
+        await fireAlert(hostInfo, metric, newClass.level, value, newClass.threshold);
+      }
+      // else: same level already firing — stay silent, no webhook spam
+    } else if (active) {
+      await resolveAlert(active, hostInfo, value);
+    }
+  }
+}
+
 async function checkAll() {
   const hosts = db.getAllHosts();
   await Promise.all(hosts.map(async (h) => {
     let result;
+    let metrics = null;
     if (h.check_type === 'ssh') {
       result = await sshCheck(h.ip, h.ssh_user, h.port);
       db.recordPing(h.id, result.ok, result.latency);
-      if (result.metrics) db.recordMetrics(h.id, result.metrics);
+      if (result.metrics) {
+        db.recordMetrics(h.id, result.metrics);
+        metrics = result.metrics;
+      }
     } else if (h.check_type === 'tcp' && h.port) {
       result = await tcpCheck(h.ip, h.port);
       db.recordPing(h.id, result.ok, result.latency);
     } else {
       result = await icmpCheck(h.ip);
       db.recordPing(h.id, result.ok, result.latency);
+    }
+    try {
+      await evaluateAlerts(h, metrics, !!result.ok);
+    } catch (e) {
+      console.warn('[alerts] evaluation failed for host', h.id, e.message);
     }
   }));
 }

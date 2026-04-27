@@ -39,6 +39,19 @@ db.exec(`
     FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
   );
   CREATE INDEX IF NOT EXISTS idx_metrics_host_ts ON metrics(host_id, ts);
+  CREATE TABLE IF NOT EXISTS alerts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    host_id    INTEGER NOT NULL,
+    metric     TEXT    NOT NULL,
+    level      TEXT    NOT NULL,
+    value      REAL,
+    threshold  REAL,
+    fired_at   INTEGER NOT NULL,
+    cleared_at INTEGER,
+    FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_alerts_active ON alerts(host_id, metric) WHERE cleared_at IS NULL;
+  CREATE INDEX IF NOT EXISTS idx_alerts_fired  ON alerts(fired_at DESC);
 `);
 
 // Migrate older databases that predate newer columns.
@@ -92,6 +105,33 @@ const stmts = {
     WHERE host_id = ? AND ts >= ?
     ORDER BY ts ASC
   `),
+  insertAlert: db.prepare(`
+    INSERT INTO alerts (host_id, metric, level, value, threshold, fired_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `),
+  clearAlert: db.prepare(`
+    UPDATE alerts SET cleared_at = ? WHERE id = ?
+  `),
+  getActiveAlert: db.prepare(`
+    SELECT id, host_id, metric, level, value, threshold, fired_at
+    FROM alerts
+    WHERE host_id = ? AND metric = ? AND cleared_at IS NULL
+    ORDER BY fired_at DESC LIMIT 1
+  `),
+  listActiveAlerts: db.prepare(`
+    SELECT a.id, a.host_id, a.metric, a.level, a.value, a.threshold, a.fired_at,
+           h.ip, h.name, h.check_type
+    FROM alerts a JOIN hosts h ON h.id = a.host_id
+    WHERE a.cleared_at IS NULL
+    ORDER BY a.fired_at DESC
+  `),
+  listRecentAlerts: db.prepare(`
+    SELECT a.id, a.host_id, a.metric, a.level, a.value, a.threshold, a.fired_at, a.cleared_at,
+           h.ip, h.name, h.check_type
+    FROM alerts a JOIN hosts h ON h.id = a.host_id
+    WHERE a.fired_at >= ?
+    ORDER BY a.fired_at DESC
+  `),
 };
 
 module.exports = {
@@ -128,4 +168,17 @@ module.exports = {
     );
   },
   getMetricsSince: (hostId, sinceTs) => stmts.metricsSince.all(hostId, sinceTs),
+  insertAlert: (hostId, metric, level, value, threshold) => {
+    const info = stmts.insertAlert.run(
+      hostId, metric, level,
+      value == null ? null : value,
+      threshold == null ? null : threshold,
+      Math.floor(Date.now() / 1000),
+    );
+    return info.lastInsertRowid;
+  },
+  clearAlert: (id) => stmts.clearAlert.run(Math.floor(Date.now() / 1000), id),
+  getActiveAlert: (hostId, metric) => stmts.getActiveAlert.get(hostId, metric),
+  listActiveAlerts: () => stmts.listActiveAlerts.all(),
+  listRecentAlerts: (sinceTs) => stmts.listRecentAlerts.all(sinceTs),
 };
