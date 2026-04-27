@@ -12,7 +12,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.5.0 released, more features coming.
+> Work in progress — v0.5.1 released, more features coming.
 
 ## Screenshots
 
@@ -68,8 +68,9 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.5.0 (current)
-- **Alerts engine**: every check evaluates the host against thresholds and fires `warning` / `critical` alerts when a metric crosses them. A bell badge in the header counts active alerts and opens a dropdown listing them; affected cards get a small `!` indicator. A consecutive-failure counter (default 2) prevents single-blip false positives on the host-DOWN alert.
+### v0.5.1 (current)
+- **Email (SMTP) notifications**: set `SMTP_HOST` + `ALERT_EMAIL_TO` (plus the usual auth) and every alert transition is sent as an email with auto-built subject and HTML / plain-text body. README has a step-by-step for Gmail (app password) and notes for other providers.
+- **Alerts engine** (v0.5.0): every check evaluates the host against thresholds and fires `warning` / `critical` alerts when a metric crosses them. A bell badge in the header counts active alerts and opens a dropdown listing them; affected cards get a small `!` indicator. A consecutive-failure counter (default 2) prevents single-blip false positives on the host-DOWN alert.
 - **Webhook notifications**: set `ALERT_WEBHOOK_URL` and the dashboard POSTs a JSON payload (`event`, `host`, `metric`, `level`, `value`, `threshold`, `timestamp`) on every alert transition (fired / cleared). Works with Discord, Slack, ntfy.sh, custom endpoints — anything that accepts a webhook.
 - **Configurable thresholds**: `CPU_WARN`, `CPU_CRIT`, `RAM_WARN`, `RAM_CRIT`, `DISK_WARN`, `DISK_CRIT` env vars (sensible defaults: 70/90 for CPU, 80/95 for RAM, 80/90 for disk).
 - **Redesigned UI** (v0.4.2): sober slate + blue palette, system sans-serif for labels and titles, monospace kept for technical data (IPs, metrics, commands, services). Same dark / light toggle, less eye strain, more professional look.
@@ -91,7 +92,6 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 - Warm amber theme with light / dark toggle (persists in localStorage)
 
 ### Planned
-- v0.5.1 — Alerts via email (SMTP)
 - v0.5.2 — Per-host threshold overrides from the UI
 - v0.6 — Auto-discovery on local network
 
@@ -115,7 +115,7 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 - [x] v0.4.1 — Host detail panel: connected users + network traffic
 - [x] v0.4.2 — UI redesign (slate + blue palette, sans / mono mix)
 - [x] v0.5.0 — Alerts engine + webhook notifications
-- [ ] v0.5.1 — Alerts via email (SMTP)
+- [x] v0.5.1 — Email (SMTP) notifications
 - [ ] v0.5.2 — Per-host threshold overrides from the UI
 - [ ] v0.6 — Auto-discovery on local network
 
@@ -181,6 +181,13 @@ Environment variables (set in `docker-compose.yml`):
 | `DISK_CRIT`          | `90`                      | Disk % threshold for `critical` alert                |
 | `ALERT_DOWN_AFTER`   | `2`                       | Consecutive failed checks before firing host-DOWN    |
 | `ALERT_WEBHOOK_URL`  | (unset)                   | If set, POST a JSON payload on each alert transition |
+| `SMTP_HOST`          | (unset)                   | SMTP server hostname (enables the email channel)     |
+| `SMTP_PORT`          | `587`                     | SMTP port (`465` for SSL, `587` or `25` for STARTTLS) |
+| `SMTP_USER`          | (unset)                   | SMTP login user                                      |
+| `SMTP_PASS`          | (unset)                   | SMTP login password                                  |
+| `SMTP_SECURE`        | `false`                   | `true` for implicit TLS (port 465), `false` otherwise |
+| `ALERT_EMAIL_FROM`   | (= `SMTP_USER`)           | `From:` header for outgoing alerts                   |
+| `ALERT_EMAIL_TO`     | (unset)                   | Destination address (enables the email channel)      |
 
 ## Alerts
 
@@ -208,6 +215,28 @@ If you set `ALERT_WEBHOOK_URL`, the dashboard sends a `POST` with this JSON body
 ```
 
 This is provider-agnostic — point it at a Discord webhook, a Slack incoming webhook, an [ntfy.sh](https://ntfy.sh) topic, or your own service. For Discord/Slack you may want a small relay that reshapes the payload to their expected schema; the JSON above is the source of truth.
+
+### Email (SMTP)
+
+Set `SMTP_HOST` and `ALERT_EMAIL_TO` to enable the email channel. Subject and body are auto-built (`[CRITICAL] CPU on web-01 — 92.4%`, with HTML and plain-text versions).
+
+**Gmail.** Google requires an *app password* — your normal Gmail password will not work over SMTP.
+
+1. Enable 2-Step Verification on your Google account (`myaccount.google.com/security`).
+2. Visit [`myaccount.google.com/apppasswords`](https://myaccount.google.com/apppasswords) and create one named e.g. `didactic-dashboard`.
+3. Use the 16-character app password as `SMTP_PASS`. Then:
+
+```yaml
+- SMTP_HOST=smtp.gmail.com
+- SMTP_PORT=465
+- SMTP_SECURE=true
+- SMTP_USER=you@gmail.com
+- SMTP_PASS=xxxxxxxxxxxxxxxx        # the app password
+- ALERT_EMAIL_FROM=you@gmail.com
+- ALERT_EMAIL_TO=ops@example.com    # where alerts land
+```
+
+**Other providers.** Any SMTP server works (Outlook 365, Mailgun, SendGrid, your corporate relay…). For development without sending real mail, [Mailtrap](https://mailtrap.io) and [MailHog](https://github.com/mailhog/MailHog) both expose a fake SMTP that captures messages in a UI.
 
 ## License
 

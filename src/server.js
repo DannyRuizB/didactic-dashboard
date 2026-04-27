@@ -2,6 +2,7 @@ const express = require('express');
 const net = require('net');
 const path = require('path');
 const { execFile } = require('child_process');
+const nodemailer = require('nodemailer');
 const db = require('./db');
 
 const PORT           = parseInt(process.env.PORT          || '3000',  10);
@@ -16,6 +17,24 @@ const ALERT_THRESHOLDS = {
 };
 const ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || '';
 const ALERT_DOWN_AFTER  = parseInt(process.env.ALERT_DOWN_AFTER || '2', 10);
+
+const SMTP_HOST   = process.env.SMTP_HOST   || '';
+const SMTP_PORT   = parseInt(process.env.SMTP_PORT || '587', 10);
+const SMTP_USER   = process.env.SMTP_USER   || '';
+const SMTP_PASS   = process.env.SMTP_PASS   || '';
+const SMTP_SECURE = process.env.SMTP_SECURE === 'true' || process.env.SMTP_SECURE === '1';
+const ALERT_EMAIL_FROM = process.env.ALERT_EMAIL_FROM || SMTP_USER;
+const ALERT_EMAIL_TO   = process.env.ALERT_EMAIL_TO   || '';
+
+const emailEnabled = !!SMTP_HOST && !!ALERT_EMAIL_TO;
+const mailer = emailEnabled
+  ? nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: SMTP_PORT,
+      secure: SMTP_SECURE,
+      auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+    })
+  : null;
 
 const DEMO_SEEDS = [];
 
@@ -59,6 +78,7 @@ app.get('/api/config', (_req, res) => {
     max_hosts: DEMO_MODE ? DEMO_MAX_HOSTS : null,
     alert_thresholds: ALERT_THRESHOLDS,
     webhook_configured: !!ALERT_WEBHOOK_URL,
+    email_configured:   emailEnabled,
   });
 });
 
@@ -405,6 +425,93 @@ async function sendWebhook(payload) {
   }
 }
 
+function metricLabel(metric) {
+  if (metric === 'cpu')    return 'CPU';
+  if (metric === 'ram')    return 'RAM';
+  if (metric === 'disk')   return 'Disk';
+  if (metric === 'status') return 'host DOWN';
+  return metric;
+}
+
+function buildEmailContent(payload) {
+  const { event, host, metric, level, value, threshold, timestamp } = payload;
+  const hostLabel = host.name || host.ip;
+  const metricName = metricLabel(metric);
+  const fired = event === 'alert.fired';
+  const tag = fired ? `[${level.toUpperCase()}]` : '[CLEARED]';
+
+  let subject;
+  if (metric === 'status') {
+    subject = fired
+      ? `${tag} ${hostLabel} is DOWN`
+      : `${tag} ${hostLabel} is back UP`;
+  } else if (value != null) {
+    subject = fired
+      ? `${tag} ${metricName} on ${hostLabel} — ${value.toFixed(1)}%`
+      : `${tag} ${metricName} on ${hostLabel} — back to ${value.toFixed(1)}%`;
+  } else {
+    subject = `${tag} ${metricName} on ${hostLabel}`;
+  }
+
+  const valueLine    = value     != null ? `Value:     ${value.toFixed(1)}%\n` : '';
+  const thresholdLn  = threshold != null ? `Threshold: ${threshold}%\n`         : '';
+
+  const text =
+`${fired ? 'Alert fired' : 'Alert cleared'} on ${hostLabel} (${host.ip})
+Metric:    ${metricName}
+Level:     ${level}
+${valueLine}${thresholdLn}Time:      ${timestamp}
+
+— didactic-dashboard
+`;
+
+  const color = fired
+    ? (level === 'critical' ? '#dc2626' : '#f59e0b')
+    : '#16a34a';
+  const html = `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#0f172a;background:#f8fafc;padding:24px;">
+  <div style="max-width:520px;margin:auto;background:#fff;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+    <div style="background:${color};color:#fff;padding:14px 20px;font-weight:600;letter-spacing:0.5px;">
+      ${fired ? level.toUpperCase() : 'CLEARED'} &middot; ${escapeHtml(metricName)}
+    </div>
+    <div style="padding:20px;line-height:1.55;">
+      <p style="margin:0 0 14px;"><strong>${escapeHtml(hostLabel)}</strong> <span style="color:#64748b;">(${escapeHtml(host.ip)})</span></p>
+      <table style="border-collapse:collapse;font-size:14px;">
+        <tr><td style="color:#64748b;padding:2px 12px 2px 0;">Metric</td><td>${escapeHtml(metricName)}</td></tr>
+        <tr><td style="color:#64748b;padding:2px 12px 2px 0;">Level</td><td>${escapeHtml(level)}</td></tr>
+        ${value     != null ? `<tr><td style="color:#64748b;padding:2px 12px 2px 0;">Value</td><td>${value.toFixed(1)}%</td></tr>` : ''}
+        ${threshold != null ? `<tr><td style="color:#64748b;padding:2px 12px 2px 0;">Threshold</td><td>${threshold}%</td></tr>` : ''}
+        <tr><td style="color:#64748b;padding:2px 12px 2px 0;">Time</td><td>${escapeHtml(timestamp)}</td></tr>
+      </table>
+      <p style="color:#94a3b8;font-size:12px;margin-top:18px;">— didactic-dashboard</p>
+    </div>
+  </div>
+</body></html>`;
+
+  return { subject, text, html };
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+async function sendEmail(payload) {
+  if (!mailer) return;
+  const { subject, text, html } = buildEmailContent(payload);
+  try {
+    await mailer.sendMail({
+      from: ALERT_EMAIL_FROM,
+      to:   ALERT_EMAIL_TO,
+      subject,
+      text,
+      html,
+    });
+  } catch (e) {
+    console.warn('[alerts] email failed:', e.message);
+  }
+}
+
 function alertPayload(event, hostInfo, alert, value) {
   return {
     event,
@@ -426,13 +533,15 @@ function alertPayload(event, hostInfo, alert, value) {
 async function fireAlert(hostInfo, metric, level, value, threshold) {
   const id = db.insertAlert(hostInfo.id, metric, level, value, threshold);
   console.log(`[alerts] FIRED ${level} ${metric} on ${hostInfo.name || hostInfo.ip} (id=${id}, value=${value}, threshold=${threshold})`);
-  await sendWebhook(alertPayload('alert.fired', hostInfo, { id, metric, level, threshold }, value));
+  const payload = alertPayload('alert.fired', hostInfo, { id, metric, level, threshold }, value);
+  await Promise.all([sendWebhook(payload), sendEmail(payload)]);
 }
 
 async function resolveAlert(alertRow, hostInfo, currentValue) {
   db.clearAlert(alertRow.id);
   console.log(`[alerts] CLEARED ${alertRow.level} ${alertRow.metric} on ${hostInfo.name || hostInfo.ip} (id=${alertRow.id})`);
-  await sendWebhook(alertPayload('alert.cleared', hostInfo, alertRow, currentValue));
+  const payload = alertPayload('alert.cleared', hostInfo, alertRow, currentValue);
+  await Promise.all([sendWebhook(payload), sendEmail(payload)]);
 }
 
 async function evaluateAlerts(hostInfo, metrics, isUp) {
@@ -514,4 +623,8 @@ setTimeout(() => {
 app.listen(PORT, () => {
   const mode = DEMO_MODE ? ' [DEMO]' : '';
   console.log(`didactic-dashboard listening on :${PORT}${mode} (check every ${PING_INTERVAL}ms)`);
+  const channels = [];
+  if (ALERT_WEBHOOK_URL) channels.push('webhook');
+  if (emailEnabled)      channels.push(`email (${SMTP_HOST}:${SMTP_PORT})`);
+  console.log(`[alerts] channels: ${channels.length ? channels.join(', ') : 'none (dashboard only)'}`);
 });

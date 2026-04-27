@@ -92,7 +92,7 @@ const stmts = {
     VALUES (?, ?, ?, ?, ?, ?)
   `),
   deleteHost:    db.prepare('DELETE FROM hosts WHERE id = ?'),
-  allHosts:      db.prepare('SELECT id, ip, port, check_type, ssh_user, services FROM hosts'),
+  allHosts:      db.prepare('SELECT id, ip, name, port, check_type, ssh_user, services FROM hosts'),
   hostById:      db.prepare('SELECT id, ip, port, check_type, ssh_user, services FROM hosts WHERE id = ?'),
   insertPing:    db.prepare('INSERT INTO pings (host_id, ts, ok, latency_ms) VALUES (?, ?, ?, ?)'),
   insertMetrics: db.prepare(`

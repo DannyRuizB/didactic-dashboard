@@ -27,6 +27,15 @@ services:
       # - DISK_CRIT=90
       # - ALERT_DOWN_AFTER=2
       # - ALERT_WEBHOOK_URL=https://example.com/webhook
+      # Email channel — see README "Alerts > Email (SMTP)" for Gmail setup.
+      # Both SMTP_HOST and ALERT_EMAIL_TO must be set to enable it.
+      # - SMTP_HOST=smtp.gmail.com
+      # - SMTP_PORT=465
+      # - SMTP_SECURE=true
+      # - SMTP_USER=you@gmail.com
+      # - SMTP_PASS=your-app-password
+      # - ALERT_EMAIL_FROM=you@gmail.com
+      # - ALERT_EMAIL_TO=ops@example.com
     restart: unless-stopped
 
 volumes:
