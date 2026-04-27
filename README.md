@@ -107,13 +107,46 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 
 To use the SSH check mode and collect metrics from remote hosts:
 
-1. Make sure your **SSH key** (`~/.ssh/id_ed25519.pub` or `id_rsa.pub`) is on the target host in its `~/.ssh/authorized_keys`.
+1. Make sure your **SSH key** (`~/.ssh/id_ed25519.pub` or `id_rsa.pub`) is on the target host in its `~/.ssh/authorized_keys`. See [first-time setup](#first-time-ssh-setup) below if you don't have one yet.
 2. The container mounts your `~/.ssh` as **read-only** (`~/.ssh:/root/.ssh:ro`), so it reuses your keys without copying them.
 3. When adding a host, pick **SSH** as the check type and enter the remote user (e.g. `root`, `ubuntu`, `soltecsis`...). Port defaults to `22`.
 4. *(Optional)* In the **services** field, list the systemd unit names you want to monitor for that host, comma-separated (e.g. `ssh,cron,nginx,named`). They show up in the `details` panel with their live state.
 5. The target host only needs standard tools (`ps`, `top`, `free`, `df`, `awk`, `/proc`, plus `systemctl` for the services panel) — no agent install required.
 
 The remote user does **not** need root. Standard user privileges are enough for the metrics collected and for `systemctl is-active` queries.
+
+### First-time SSH setup
+
+If you've never used SSH key auth before, three commands set it up:
+
+```bash
+# 1. Generate a key pair (press Enter to accept defaults; leave the passphrase
+#    empty unless you also run an ssh-agent)
+ssh-keygen -t ed25519 -C "you@example.com"
+
+# 2. Copy the public key to the host you want to monitor
+ssh-copy-id user@host
+
+# 3. Verify you can connect without typing a password
+ssh user@host 'echo ok'
+```
+
+That's it — the dashboard reuses the same key, so once `ssh user@host` works on your machine, the SSH check mode will work too.
+
+On **Windows PowerShell** (10/11) `ssh-keygen` is built-in but `ssh-copy-id` isn't. Replace step 2 with:
+
+```powershell
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh user@host "cat >> .ssh/authorized_keys"
+```
+
+The target host needs an SSH server running (`sudo apt install openssh-server` on Debian/Ubuntu, already installed on most cloud VMs) and your user must exist on it.
+
+### Troubleshooting
+
+- **Card stays DOWN on an SSH host.** First check from a regular shell that `ssh user@host 'echo ok'` works without prompting — if it asks for a password the dashboard can't help (it runs SSH in `BatchMode`, no interactive prompts).
+- **`Permission denied (publickey)`.** Your public key isn't in the target's `~/.ssh/authorized_keys`. Re-run `ssh-copy-id` or paste it manually.
+- **No metrics appear but the host is UP.** The metrics collector needs `top`, `free`, `df`, `awk` and `/proc`. Almost every Linux has them; minimal containers (Alpine, distroless) may not.
+- **Services show `unknown`.** That host doesn't use systemd, or the unit name is wrong. Try `systemctl is-active <name>` directly on the host.
 
 ## Configuration
 
