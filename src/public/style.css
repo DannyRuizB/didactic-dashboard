@@ -709,3 +709,205 @@ body {
   font-size: 1.05rem;
   font-weight: 600;
 }
+
+/* --- Per-host thresholds (v0.5.2) --- */
+
+.add-form .advanced-toggle {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  font-weight: 400;
+}
+.add-form .advanced-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  opacity: 1;
+}
+.advanced-block {
+  flex-basis: 100%;
+  margin: 0.25rem 0 0;
+  padding: 0.7rem 0.9rem 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+.advanced-block legend {
+  padding: 0 0.4rem;
+  color: var(--fg-dim);
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.5px;
+}
+.advanced-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+.threshold-grid {
+  display: grid;
+  grid-template-columns: 60px 1fr 1fr;
+  gap: 0.4rem 0.6rem;
+  align-items: center;
+  margin-top: 0.4rem;
+}
+.threshold-grid input[type="number"] {
+  width: 100%;
+  background: var(--bg-card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.55rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  border-radius: 4px;
+}
+.threshold-grid input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--glow);
+}
+.th-label {
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+  letter-spacing: 0.5px;
+}
+
+.card .edit-host {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.5px;
+  height: 24px;
+  padding: 0 0.55rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.card .edit-host:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.override-badge {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  height: 16px;
+  line-height: 14px;
+  letter-spacing: 0.5px;
+}
+
+/* --- Edit dialog --- */
+
+.edit-dialog {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--fg);
+  padding: 1.4rem 1.6rem;
+  max-width: 460px;
+  width: calc(100% - 2rem);
+  font-family: var(--sans);
+}
+.edit-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+.edit-dialog .edit-title {
+  margin: 0 0 0.2rem;
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+.edit-dialog .edit-target {
+  margin: 0 0 1rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.7rem;
+}
+.edit-field span {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  letter-spacing: 0.5px;
+}
+.edit-field input {
+  background: var(--bg-input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.7rem;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  border-radius: 6px;
+}
+.edit-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--glow);
+}
+.edit-thresholds {
+  margin: 0.4rem 0 0.9rem;
+  padding: 0.6rem 0.8rem 0.8rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+}
+.edit-thresholds legend {
+  padding: 0 0.4rem;
+  color: var(--fg-dim);
+  font-size: 0.78rem;
+  letter-spacing: 0.5px;
+}
+.edit-error {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.83rem;
+  margin: 0.5rem 0 0.5rem;
+}
+.edit-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+  margin-top: 0.8rem;
+}
+.edit-actions button {
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+.edit-actions .edit-cancel {
+  background: transparent;
+  color: var(--fg-dim);
+}
+.edit-actions .edit-cancel:hover {
+  color: var(--fg-strong);
+  border-color: var(--accent);
+}
+.edit-actions .edit-save {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 500;
+}
+.edit-actions .edit-save:hover {
+  opacity: 0.9;
+}

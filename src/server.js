@@ -72,6 +72,55 @@ function parsePort(raw) {
   return n;
 }
 
+// Per-host threshold override: a number 0-100 (one decimal accepted) or null
+// when the user wants to fall back to the global env var. Returns `undefined`
+// to signal "invalid input" so the caller can return 400.
+function parseThreshold(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return undefined;
+  return Math.round(n * 10) / 10;
+}
+
+// Pull the 6 optional override fields out of a request body. Returns either
+// `{ ok: true, values: {...} }` with each metric's warn/crit (null = use global)
+// or `{ ok: false, error }` on bad input or warn >= crit.
+function parseThresholdOverrides(body) {
+  const out = {};
+  for (const key of ['cpu_warn', 'cpu_crit', 'ram_warn', 'ram_crit', 'disk_warn', 'disk_crit']) {
+    const v = parseThreshold(body[key]);
+    if (v === undefined) return { ok: false, error: `Invalid ${key} (0-100)` };
+    out[key] = v;
+  }
+  for (const m of ['cpu', 'ram', 'disk']) {
+    const w = out[`${m}_warn`];
+    const c = out[`${m}_crit`];
+    if (w != null && c != null && !(w < c)) {
+      return { ok: false, error: `${m.toUpperCase()}: warning must be lower than critical` };
+    }
+  }
+  return { ok: true, values: out };
+}
+
+// Resolve effective thresholds for a host: per-host override if set, else
+// the global default from env vars.
+function resolveThresholds(host) {
+  return {
+    cpu: {
+      warning:  host.cpu_warn  != null ? host.cpu_warn  : ALERT_THRESHOLDS.cpu.warning,
+      critical: host.cpu_crit  != null ? host.cpu_crit  : ALERT_THRESHOLDS.cpu.critical,
+    },
+    ram: {
+      warning:  host.ram_warn  != null ? host.ram_warn  : ALERT_THRESHOLDS.ram.warning,
+      critical: host.ram_crit  != null ? host.ram_crit  : ALERT_THRESHOLDS.ram.critical,
+    },
+    disk: {
+      warning:  host.disk_warn != null ? host.disk_warn : ALERT_THRESHOLDS.disk.warning,
+      critical: host.disk_crit != null ? host.disk_crit : ALERT_THRESHOLDS.disk.critical,
+    },
+  };
+}
+
 app.get('/api/config', (_req, res) => {
   res.json({
     demo: DEMO_MODE,
@@ -116,6 +165,7 @@ app.post('/api/hosts', (req, res) => {
 
   let user = null;
   let services = null;
+  let overrides = { cpu_warn: null, cpu_crit: null, ram_warn: null, ram_crit: null, disk_warn: null, disk_crit: null };
   if (type === 'ssh') {
     const u = typeof body.ssh_user === 'string' ? body.ssh_user.trim() : '';
     if (!isValidSshUser(u)) {
@@ -128,12 +178,25 @@ app.post('/api/hosts', (req, res) => {
       return res.status(400).json({ error: 'Invalid services list (comma-separated unit names, max 20)' });
     }
     services = parsedServices.value;
+
+    const parsedOverrides = parseThresholdOverrides(body);
+    if (!parsedOverrides.ok) {
+      return res.status(400).json({ error: parsedOverrides.error });
+    }
+    overrides = parsedOverrides.values;
   }
 
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
 
   try {
     const host = db.addHost(target, name, parsedPort, type, user, services);
+    if (type === 'ssh' && Object.values(overrides).some((v) => v != null)) {
+      db.updateHost(host.id, {
+        name, port: parsedPort, ssh_user: user, services,
+        ...overrides,
+      });
+      Object.assign(host, overrides);
+    }
     res.status(201).json(host);
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) {
@@ -141,6 +204,75 @@ app.post('/api/hosts', (req, res) => {
     }
     res.status(500).json({ error: e.message });
   }
+});
+
+// PATCH allows editing a host's mutable fields without changing its identity
+// (ip and check_type are intentionally immutable — change those by deleting
+// and re-creating). For SSH hosts you can also override the global alert
+// thresholds; pass `null` (or omit) on a field to fall back to the env var.
+app.patch('/api/hosts/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  const existing = db.getHostById(id);
+  if (!existing) return res.status(404).json({ error: 'Host not found' });
+
+  const body = req.body || {};
+
+  let name = existing.name;
+  if ('name' in body) {
+    name = (typeof body.name === 'string' && body.name.trim()) ? body.name.trim() : null;
+  }
+
+  let port = existing.port;
+  if ('port' in body) {
+    const parsed = parsePort(body.port);
+    if (parsed === undefined) return res.status(400).json({ error: 'Invalid port (1-65535)' });
+    if (existing.check_type === 'tcp' && !parsed) {
+      return res.status(400).json({ error: 'Port is required for TCP check' });
+    }
+    port = existing.check_type === 'icmp' ? null : (parsed || (existing.check_type === 'ssh' ? 22 : null));
+  }
+
+  let user = existing.ssh_user;
+  let services = existing.services;
+  let overrides = {
+    cpu_warn:  existing.cpu_warn,  cpu_crit:  existing.cpu_crit,
+    ram_warn:  existing.ram_warn,  ram_crit:  existing.ram_crit,
+    disk_warn: existing.disk_warn, disk_crit: existing.disk_crit,
+  };
+
+  if (existing.check_type === 'ssh') {
+    if ('ssh_user' in body) {
+      const u = typeof body.ssh_user === 'string' ? body.ssh_user.trim() : '';
+      if (!isValidSshUser(u)) {
+        return res.status(400).json({ error: 'Valid SSH user required (letters, digits, . _ -)' });
+      }
+      user = u;
+    }
+    if ('services' in body) {
+      const parsedServices = parseServices(body.services);
+      if (!parsedServices.ok) {
+        return res.status(400).json({ error: 'Invalid services list (comma-separated unit names, max 20)' });
+      }
+      services = parsedServices.value;
+    }
+    // Threshold fields are only honoured if at least one is present in the
+    // body — otherwise we leave the stored overrides untouched. Sending all
+    // six as empty strings clears the overrides (back to global defaults).
+    const hasThresholdField = ['cpu_warn', 'cpu_crit', 'ram_warn', 'ram_crit', 'disk_warn', 'disk_crit']
+      .some((k) => k in body);
+    if (hasThresholdField) {
+      const parsed = parseThresholdOverrides(body);
+      if (!parsed.ok) return res.status(400).json({ error: parsed.error });
+      overrides = parsed.values;
+    }
+  }
+
+  db.updateHost(id, { name, port, ssh_user: user, services, ...overrides });
+  res.json({
+    id, ip: existing.ip, check_type: existing.check_type,
+    name, port, ssh_user: user, services, ...overrides,
+  });
 });
 
 const WINDOW_SECONDS = {
@@ -558,9 +690,10 @@ async function evaluateAlerts(hostInfo, metrics, isUp) {
     }
   }
   if (!metrics) return;
+  const effective = resolveThresholds(hostInfo);
   for (const metric of ['cpu', 'ram', 'disk']) {
     const value = metrics[metric];
-    const thresholds = ALERT_THRESHOLDS[metric];
+    const thresholds = effective[metric];
     const newClass = classifyMetric(value, thresholds);
     const active = db.getActiveAlert(hostInfo.id, metric);
     if (newClass) {

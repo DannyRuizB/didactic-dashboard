@@ -18,6 +18,12 @@ db.exec(`
     check_type TEXT    NOT NULL DEFAULT 'icmp',
     ssh_user   TEXT,
     services   TEXT,
+    cpu_warn   REAL,
+    cpu_crit   REAL,
+    ram_warn   REAL,
+    ram_crit   REAL,
+    disk_warn  REAL,
+    disk_crit  REAL,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   );
   CREATE TABLE IF NOT EXISTS pings (
@@ -61,13 +67,21 @@ if (!hasCol('port'))       db.exec('ALTER TABLE hosts ADD COLUMN port INTEGER');
 if (!hasCol('check_type')) db.exec("ALTER TABLE hosts ADD COLUMN check_type TEXT NOT NULL DEFAULT 'icmp'");
 if (!hasCol('ssh_user'))   db.exec('ALTER TABLE hosts ADD COLUMN ssh_user TEXT');
 if (!hasCol('services'))   db.exec('ALTER TABLE hosts ADD COLUMN services TEXT');
+if (!hasCol('cpu_warn'))   db.exec('ALTER TABLE hosts ADD COLUMN cpu_warn REAL');
+if (!hasCol('cpu_crit'))   db.exec('ALTER TABLE hosts ADD COLUMN cpu_crit REAL');
+if (!hasCol('ram_warn'))   db.exec('ALTER TABLE hosts ADD COLUMN ram_warn REAL');
+if (!hasCol('ram_crit'))   db.exec('ALTER TABLE hosts ADD COLUMN ram_crit REAL');
+if (!hasCol('disk_warn'))  db.exec('ALTER TABLE hosts ADD COLUMN disk_warn REAL');
+if (!hasCol('disk_crit'))  db.exec('ALTER TABLE hosts ADD COLUMN disk_crit REAL');
 
 // Older rows that had a port but no explicit type should be treated as TCP.
 db.exec("UPDATE hosts SET check_type = 'tcp' WHERE port IS NOT NULL AND check_type = 'icmp'");
 
 const stmts = {
   list: db.prepare(`
-    SELECT h.id, h.ip, h.name, h.port, h.check_type, h.ssh_user, h.services, h.created_at,
+    SELECT h.id, h.ip, h.name, h.port, h.check_type, h.ssh_user, h.services,
+           h.cpu_warn, h.cpu_crit, h.ram_warn, h.ram_crit, h.disk_warn, h.disk_crit,
+           h.created_at,
            p.ts         AS last_ts,
            p.ok         AS last_ok,
            p.latency_ms AS last_latency,
@@ -92,8 +106,30 @@ const stmts = {
     VALUES (?, ?, ?, ?, ?, ?)
   `),
   deleteHost:    db.prepare('DELETE FROM hosts WHERE id = ?'),
-  allHosts:      db.prepare('SELECT id, ip, name, port, check_type, ssh_user, services FROM hosts'),
-  hostById:      db.prepare('SELECT id, ip, port, check_type, ssh_user, services FROM hosts WHERE id = ?'),
+  allHosts:      db.prepare(`
+    SELECT id, ip, name, port, check_type, ssh_user, services,
+           cpu_warn, cpu_crit, ram_warn, ram_crit, disk_warn, disk_crit
+    FROM hosts
+  `),
+  hostById:      db.prepare(`
+    SELECT id, ip, name, port, check_type, ssh_user, services,
+           cpu_warn, cpu_crit, ram_warn, ram_crit, disk_warn, disk_crit
+    FROM hosts WHERE id = ?
+  `),
+  updateHost: db.prepare(`
+    UPDATE hosts SET
+      name      = ?,
+      port      = ?,
+      ssh_user  = ?,
+      services  = ?,
+      cpu_warn  = ?,
+      cpu_crit  = ?,
+      ram_warn  = ?,
+      ram_crit  = ?,
+      disk_warn = ?,
+      disk_crit = ?
+    WHERE id = ?
+  `),
   insertPing:    db.prepare('INSERT INTO pings (host_id, ts, ok, latency_ms) VALUES (?, ?, ?, ?)'),
   insertMetrics: db.prepare(`
     INSERT INTO metrics (host_id, ts, cpu, ram, disk, load1, uptime_s)
@@ -153,7 +189,25 @@ module.exports = {
       check_type: checkType,
       ssh_user: sshUser || null,
       services: services || null,
+      cpu_warn: null, cpu_crit: null,
+      ram_warn: null, ram_crit: null,
+      disk_warn: null, disk_crit: null,
     };
+  },
+  updateHost: (id, fields) => {
+    stmts.updateHost.run(
+      fields.name      ?? null,
+      fields.port      ?? null,
+      fields.ssh_user  ?? null,
+      fields.services  ?? null,
+      fields.cpu_warn  ?? null,
+      fields.cpu_crit  ?? null,
+      fields.ram_warn  ?? null,
+      fields.ram_crit  ?? null,
+      fields.disk_warn ?? null,
+      fields.disk_crit ?? null,
+      id,
+    );
   },
   deleteHost: (id) => stmts.deleteHost.run(id),
   getAllHosts: () => stmts.allHosts.all(),

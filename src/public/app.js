@@ -9,6 +9,40 @@ const servicesInput = document.getElementById('services-input');
 const nameInput     = document.getElementById('name-input');
 const demoBanner    = document.getElementById('demo-banner');
 
+const advancedToggle = document.getElementById('advanced-toggle');
+const advancedBlock  = document.getElementById('advanced-block');
+const thresholdInputs = {
+  cpu_warn:  document.getElementById('cpu-warn-input'),
+  cpu_crit:  document.getElementById('cpu-crit-input'),
+  ram_warn:  document.getElementById('ram-warn-input'),
+  ram_crit:  document.getElementById('ram-crit-input'),
+  disk_warn: document.getElementById('disk-warn-input'),
+  disk_crit: document.getElementById('disk-crit-input'),
+};
+
+const editDialog   = document.getElementById('edit-dialog');
+const editForm     = document.getElementById('edit-form');
+const editTarget   = document.getElementById('edit-target');
+const editName     = document.getElementById('edit-name');
+const editPort     = document.getElementById('edit-port');
+const editUser     = document.getElementById('edit-user');
+const editServices = document.getElementById('edit-services');
+const editError    = document.getElementById('edit-error');
+const editPortRow       = document.getElementById('edit-port-row');
+const editUserRow       = document.getElementById('edit-user-row');
+const editServicesRow   = document.getElementById('edit-services-row');
+const editThresholdsRow = document.getElementById('edit-thresholds-row');
+const editCancel   = document.getElementById('edit-cancel');
+const editThresholdInputs = {
+  cpu_warn:  document.getElementById('edit-cpu-warn'),
+  cpu_crit:  document.getElementById('edit-cpu-crit'),
+  ram_warn:  document.getElementById('edit-ram-warn'),
+  ram_crit:  document.getElementById('edit-ram-crit'),
+  disk_warn: document.getElementById('edit-disk-warn'),
+  disk_crit: document.getElementById('edit-disk-crit'),
+};
+let editingHostId = null;
+
 // id -> window ('1h'|'24h'|'7d'|'30d') for hosts whose chart panel is open
 const expanded = new Map();
 // id -> { pct: Chart, load: Chart } so we can destroy them before re-rendering
@@ -197,6 +231,15 @@ function renderHost(h) {
   const detailsToggle = h.check_type === 'ssh'
     ? `<button class="details-toggle" data-id="${h.id}" title="Toggle details">details</button>`
     : '';
+  const editBtn = `<button class="edit-host" data-id="${h.id}" title="Edit host" aria-label="Edit host">edit</button>`;
+  const hasOverride = h.check_type === 'ssh' && (
+    h.cpu_warn != null || h.cpu_crit != null ||
+    h.ram_warn != null || h.ram_crit != null ||
+    h.disk_warn != null || h.disk_crit != null
+  );
+  const overrideBadge = hasOverride
+    ? `<span class="override-badge" title="Per-host thresholds set">th</span>`
+    : '';
 
   const isOpen = expanded.has(h.id);
   const activeWin = expanded.get(h.id) || '1h';
@@ -230,9 +273,11 @@ function renderHost(h) {
         <span class="dot"></span>
         <span class="status">${statusText}</span>
         ${alertBadge}
+        ${overrideBadge}
         <span class="mode">${mode}</span>
         ${detailsToggle}
         ${chartToggle}
+        ${editBtn}
         <button class="delete" data-id="${h.id}" title="Remove host" aria-label="Remove host">x</button>
       </header>
       <h2>${title}</h2>
@@ -513,6 +558,12 @@ hostsEl.addEventListener('click', async (e) => {
     return;
   }
 
+  const editBtn = e.target.closest('.edit-host');
+  if (editBtn) {
+    openEditDialog(parseInt(editBtn.dataset.id, 10));
+    return;
+  }
+
   const toggle = e.target.closest('.chart-toggle');
   if (toggle) {
     const id = parseInt(toggle.dataset.id, 10);
@@ -550,10 +601,16 @@ function updateFormFields() {
   userInput.hidden = (t !== 'ssh');
   portInput.hidden = (t === 'icmp');
   servicesInput.hidden = (t !== 'ssh');
+  advancedToggle.hidden = (t !== 'ssh');
   userInput.required = (t === 'ssh');
   portInput.required = (t === 'tcp');
   portInput.placeholder = (t === 'ssh') ? 'port (default 22)' : 'port';
-  if (t !== 'ssh')  { userInput.value = ''; servicesInput.value = ''; }
+  if (t !== 'ssh') {
+    userInput.value = '';
+    servicesInput.value = '';
+    closeAdvanced();
+    for (const inp of Object.values(thresholdInputs)) inp.value = '';
+  }
   // Wipe the port whenever the check type changes — the meaning of "port"
   // differs between TCP (required) and SSH (defaults to 22), so a stale value
   // from a previous selection would silently target the wrong port.
@@ -562,6 +619,20 @@ function updateFormFields() {
 }
 checkType.addEventListener('change', updateFormFields);
 updateFormFields();
+
+function openAdvanced() {
+  advancedBlock.hidden = false;
+  advancedToggle.setAttribute('aria-expanded', 'true');
+  advancedToggle.textContent = '− thresholds';
+}
+function closeAdvanced() {
+  advancedBlock.hidden = true;
+  advancedToggle.setAttribute('aria-expanded', 'false');
+  advancedToggle.textContent = '+ thresholds';
+}
+advancedToggle.addEventListener('click', () => {
+  if (advancedBlock.hidden) openAdvanced(); else closeAdvanced();
+});
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -572,18 +643,25 @@ form.addEventListener('submit', async (e) => {
   const services = servicesInput.value.trim();
   const name     = nameInput.value.trim();
   if (!ip) return;
+  const payload = {
+    ip,
+    name: name || undefined,
+    port: port || undefined,
+    check_type: type,
+    ssh_user: user || undefined,
+    services: services || undefined,
+  };
+  if (type === 'ssh') {
+    for (const [key, inp] of Object.entries(thresholdInputs)) {
+      const v = inp.value.trim();
+      if (v !== '') payload[key] = v;
+    }
+  }
   try {
     const res = await fetch('/api/hosts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ip,
-        name: name || undefined,
-        port: port || undefined,
-        check_type: type,
-        ssh_user: user || undefined,
-        services: services || undefined,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -595,6 +673,7 @@ form.addEventListener('submit', async (e) => {
     portInput.value = '';
     servicesInput.value = '';
     nameInput.value = '';
+    for (const inp of Object.values(thresholdInputs)) inp.value = '';
     checkType.value = 'icmp';
     updateFormFields();
     loadHosts();
@@ -627,6 +706,89 @@ document.addEventListener('click', (e) => {
   if (!alertsDropdown.hidden && !e.target.closest('#alerts-bell')) {
     alertsDropdown.hidden = true;
     alertsBtn.setAttribute('aria-expanded', 'false');
+  }
+});
+
+function openEditDialog(id) {
+  // We pull the latest snapshot from /api/hosts rather than caching, so
+  // values shown in the dialog match what the server currently has.
+  fetch('/api/hosts')
+    .then((r) => r.json())
+    .then((hosts) => {
+      const h = hosts.find((x) => x.id === id);
+      if (!h) { showError('Host not found'); return; }
+      editingHostId = id;
+      const target = h.check_type === 'ssh'
+        ? `${h.ssh_user}@${h.ip}${h.port ? ':' + h.port : ''}`
+        : (h.port ? `${h.ip}:${h.port}` : h.ip);
+      editTarget.textContent = `${target} · ${h.check_type.toUpperCase()}`;
+
+      editName.value     = h.name || '';
+      editPort.value     = h.port != null ? String(h.port) : '';
+      editUser.value     = h.ssh_user || '';
+      editServices.value = h.services || '';
+      for (const [key, inp] of Object.entries(editThresholdInputs)) {
+        inp.value = h[key] != null ? String(h[key]) : '';
+      }
+
+      const ssh = h.check_type === 'ssh';
+      editPortRow.hidden       = h.check_type === 'icmp';
+      editUserRow.hidden       = !ssh;
+      editServicesRow.hidden   = !ssh;
+      editThresholdsRow.hidden = !ssh;
+
+      editError.hidden = true;
+      editError.textContent = '';
+      editDialog.showModal();
+    })
+    .catch(() => showError('Could not load host'));
+}
+
+editCancel.addEventListener('click', () => {
+  editDialog.close();
+  editingHostId = null;
+});
+
+editForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (editingHostId == null) return;
+
+  const body = {
+    name: editName.value.trim() || null,
+  };
+  if (!editPortRow.hidden) {
+    body.port = editPort.value.trim() || null;
+  }
+  if (!editUserRow.hidden) {
+    body.ssh_user = editUser.value.trim();
+  }
+  if (!editServicesRow.hidden) {
+    body.services = editServices.value.trim();
+  }
+  if (!editThresholdsRow.hidden) {
+    for (const [key, inp] of Object.entries(editThresholdInputs)) {
+      body[key] = inp.value.trim();
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/hosts/${editingHostId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      editError.textContent = data.error || 'Could not save changes';
+      editError.hidden = false;
+      return;
+    }
+    editDialog.close();
+    editingHostId = null;
+    loadHosts();
+  } catch {
+    editError.textContent = 'Network error';
+    editError.hidden = false;
   }
 });
 

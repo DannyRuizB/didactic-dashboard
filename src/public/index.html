@@ -30,7 +30,7 @@
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">theme: dark</button>
       </div>
     </div>
-    <p class="sub">simple network monitor &middot; v0.5.1</p>
+    <p class="sub">simple network monitor &middot; v0.5.2</p>
   </header>
 
   <main>
@@ -50,7 +50,22 @@
       <input id="port-input" type="number" placeholder="port" min="1" max="65535" class="field-port port-field" hidden>
       <input id="services-input" type="text" placeholder="services (e.g. ssh,cron,nginx)" class="field-ssh services-field" hidden>
       <input id="name-input" type="text"   placeholder="name (optional)">
+      <button type="button" id="advanced-toggle" class="advanced-toggle field-ssh" hidden aria-expanded="false">+ thresholds</button>
       <button type="submit">+ add</button>
+      <fieldset id="advanced-block" class="advanced-block field-ssh" hidden>
+        <legend>per-host thresholds <span class="advanced-hint">(empty = use global defaults)</span></legend>
+        <div class="threshold-grid">
+          <span class="th-label">CPU</span>
+          <input id="cpu-warn-input"  type="number" placeholder="warn" min="0" max="100" step="0.1">
+          <input id="cpu-crit-input"  type="number" placeholder="crit" min="0" max="100" step="0.1">
+          <span class="th-label">RAM</span>
+          <input id="ram-warn-input"  type="number" placeholder="warn" min="0" max="100" step="0.1">
+          <input id="ram-crit-input"  type="number" placeholder="crit" min="0" max="100" step="0.1">
+          <span class="th-label">Disk</span>
+          <input id="disk-warn-input" type="number" placeholder="warn" min="0" max="100" step="0.1">
+          <input id="disk-crit-input" type="number" placeholder="crit" min="0" max="100" step="0.1">
+        </div>
+      </fieldset>
     </form>
     <p class="hint">ICMP = ping &middot; TCP = connect to port (works through VPNs blocking ICMP) &middot; SSH = connect and collect CPU / RAM / disk metrics (your <code>~/.ssh</code> key must be authorized on the target host) &middot; <strong>services</strong> = comma-separated systemd unit names to monitor in the details panel</p>
 
@@ -59,8 +74,46 @@
     <section id="hosts" class="hosts"></section>
   </main>
 
+  <dialog id="edit-dialog" class="edit-dialog">
+    <form id="edit-form" method="dialog" autocomplete="off">
+      <h2 class="edit-title">Edit host</h2>
+      <p class="edit-target" id="edit-target"></p>
+      <label class="edit-field"><span>name</span>
+        <input id="edit-name" type="text" placeholder="(optional)">
+      </label>
+      <label class="edit-field" id="edit-port-row"><span>port</span>
+        <input id="edit-port" type="number" min="1" max="65535">
+      </label>
+      <label class="edit-field" id="edit-user-row"><span>ssh user</span>
+        <input id="edit-user" type="text">
+      </label>
+      <label class="edit-field" id="edit-services-row"><span>services</span>
+        <input id="edit-services" type="text" placeholder="comma-separated">
+      </label>
+      <fieldset class="edit-thresholds" id="edit-thresholds-row">
+        <legend>per-host thresholds <span class="advanced-hint">(empty = use global)</span></legend>
+        <div class="threshold-grid">
+          <span class="th-label">CPU</span>
+          <input id="edit-cpu-warn"  type="number" placeholder="warn" min="0" max="100" step="0.1">
+          <input id="edit-cpu-crit"  type="number" placeholder="crit" min="0" max="100" step="0.1">
+          <span class="th-label">RAM</span>
+          <input id="edit-ram-warn"  type="number" placeholder="warn" min="0" max="100" step="0.1">
+          <input id="edit-ram-crit"  type="number" placeholder="crit" min="0" max="100" step="0.1">
+          <span class="th-label">Disk</span>
+          <input id="edit-disk-warn" type="number" placeholder="warn" min="0" max="100" step="0.1">
+          <input id="edit-disk-crit" type="number" placeholder="crit" min="0" max="100" step="0.1">
+        </div>
+      </fieldset>
+      <div id="edit-error" class="edit-error" hidden></div>
+      <div class="edit-actions">
+        <button type="button" id="edit-cancel" class="edit-cancel">cancel</button>
+        <button type="submit" class="edit-save">save</button>
+      </div>
+    </form>
+  </dialog>
+
   <footer class="page-footer">
-    <span>didactic-dashboard v0.5.1</span>
+    <span>didactic-dashboard v0.5.2</span>
     <a href="https://github.com/DannyRuizB/didactic-dashboard" target="_blank" rel="noopener">github.com/DannyRuizB/didactic-dashboard</a>
   </footer>
 
