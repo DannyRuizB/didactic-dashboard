@@ -7,12 +7,12 @@
 [![Docker Hub](https://img.shields.io/docker/v/dannyruizb/didactic-dashboard?label=docker%20hub&logo=docker&sort=semver)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dannyruizb/didactic-dashboard?logo=docker)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
 ![Image size](https://img.shields.io/docker/image-size/dannyruizb/didactic-dashboard/latest)
-![Status](https://img.shields.io/badge/status-WIP-orange.svg)
+![Status](https://img.shields.io/badge/status-stable-2ea44f.svg)
 ![Last commit](https://img.shields.io/github/last-commit/DannyRuizB/didactic-dashboard)
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.6.0 released, more features coming.
+> Stable — v0.6.0 is the current release.
 
 ## Screenshots
 
@@ -102,9 +102,6 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 - One-command Docker Compose deploy
 - Warm amber theme with light / dark toggle (persists in localStorage)
 
-### Planned
-- More discovery types (Docker hosts, libvirt) — only Proxmox in v0.6.0
-
 ## Why
 
 A lightweight, didactic alternative to Zabbix — simple enough to read, modify and learn from. Great for home labs and small sysadmin practice environments.
@@ -116,7 +113,7 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 - Vanilla HTML / CSS / JS (frontend)
 - Docker + Docker Compose (deploy)
 
-## Roadmap
+## Release history
 
 - [x] v0.1 — Add/remove hosts via UI, ICMP + TCP checks, Docker Compose
 - [x] v0.2 — SSH-based metrics (CPU, RAM, disk, load, uptime) with live bars
