@@ -188,8 +188,18 @@ app.post('/api/hosts', (req, res) => {
 
   const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
 
+  // Discovery flag: only meaningful for SSH hosts. Accepts the literal
+  // string 'proxmox' for now (extensible to 'docker' / 'libvirt' later).
+  let discovery = null;
+  if (type === 'ssh' && body.discovery) {
+    if (body.discovery !== 'proxmox') {
+      return res.status(400).json({ error: 'Unknown discovery type (only "proxmox" supported)' });
+    }
+    discovery = 'proxmox';
+  }
+
   try {
-    const host = db.addHost(target, name, parsedPort, type, user, services);
+    const host = db.addHost(target, name, parsedPort, type, user, services, discovery, null);
     if (type === 'ssh' && Object.values(overrides).some((v) => v != null)) {
       db.updateHost(host.id, {
         name, port: parsedPort, ssh_user: user, services,
@@ -306,6 +316,62 @@ app.get('/api/hosts/:id/details', async (req, res) => {
     users: result.users,
     network: result.network,
   });
+});
+
+// Probe a Proxmox host and return its VMs/CTs without persisting anything.
+// The UI lets the user pick which ones to adopt as monitored hosts.
+app.get('/api/hosts/:id/discover', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  if (DEMO_MODE) return res.status(403).json({ error: 'Discovery is disabled in the public demo' });
+  const host = db.getHostById(id);
+  if (!host) return res.status(404).json({ error: 'Host not found' });
+  if (host.check_type !== 'ssh' || host.discovery !== 'proxmox') {
+    return res.status(400).json({ error: 'Discovery requires a Proxmox SSH host' });
+  }
+  const result = await discoverProxmox(host.ip, host.ssh_user, host.port);
+  if (!result.ok) return res.status(502).json({ error: 'Proxmox host unreachable' });
+  res.json({ vms: result.vms });
+});
+
+// Adopt a list of discovered VMs as monitored SSH hosts. The shared
+// ssh_user is applied to all of them (edit later per host if needed).
+// VMs without an IP are skipped — the client should filter those out.
+app.post('/api/hosts/:id/adopt', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+  if (DEMO_MODE) return res.status(403).json({ error: 'Adoption is disabled in the public demo' });
+  const parent = db.getHostById(id);
+  if (!parent) return res.status(404).json({ error: 'Parent host not found' });
+  if (parent.discovery !== 'proxmox') {
+    return res.status(400).json({ error: 'Parent is not a discovery host' });
+  }
+
+  const body = req.body || {};
+  const sharedUser = typeof body.ssh_user === 'string' ? body.ssh_user.trim() : '';
+  if (!isValidSshUser(sharedUser)) {
+    return res.status(400).json({ error: 'Valid SSH user required (letters, digits, . _ -)' });
+  }
+  const vms = Array.isArray(body.vms) ? body.vms : [];
+  if (!vms.length) return res.status(400).json({ error: 'No VMs to adopt' });
+
+  const adopted = [];
+  const skipped = [];
+  for (const v of vms) {
+    const ip = typeof v.ip === 'string' ? v.ip.trim() : '';
+    if (!isValidTarget(ip)) { skipped.push({ vmid: v.vmid, reason: 'no IP' }); continue; }
+    const name = typeof v.name === 'string' && v.name.trim()
+      ? v.name.trim()
+      : `vm-${v.vmid}`;
+    try {
+      const host = db.addHost(ip, name, 22, 'ssh', sharedUser, null, null, parent.id);
+      adopted.push(host);
+    } catch (e) {
+      const reason = String(e.message).includes('UNIQUE') ? 'already monitored' : 'db error';
+      skipped.push({ vmid: v.vmid, ip, reason });
+    }
+  }
+  res.status(201).json({ adopted, skipped });
 });
 
 app.get('/api/alerts', (req, res) => {
@@ -528,6 +594,107 @@ function detailsCheck(target, user, port, servicesCsv) {
         users: userOut,
         network,
       });
+    });
+  });
+}
+
+// Auto-discovery: from a Proxmox host, list all VMs / LXC containers and
+// resolve each one's IP without touching the guests. The remote script
+// emits prefixed lines so we can parse them in any order:
+//   kvm=<vmid>|<status>|<name>      one per KVM VM
+//   lxc=<vmid>|<status>|<name>      one per LXC container
+//   kvmnet=<vmid>|<mac>             a NIC of a KVM VM (lowercase mac)
+//   lxcnet=<vmid>|<mac>|<ip-or->    a NIC of an LXC container (ip optional)
+//   neigh=<ip>|<mac>                ARP cache entry on the Proxmox node
+const PROXMOX_DISCOVER_SCRIPT = [
+  // qm and pct live in /usr/sbin which isn't on a normal user's PATH, and
+  // they need root. Detect both: if we're not root, prefix every Proxmox
+  // call with `sudo -n` (relies on NOPASSWD being configured for the user,
+  // or on the user being root@pam directly).
+  'QM=$(command -v qm 2>/dev/null || echo /usr/sbin/qm)',
+  'PCT=$(command -v pct 2>/dev/null || echo /usr/sbin/pct)',
+  '[ "$(id -u)" -ne 0 ] && SUDO="sudo -n" || SUDO=""',
+  // List VMs (KVM)
+  '$SUDO $QM list 2>/dev/null | awk \'NR>1 {printf "kvm=%s|%s|%s\\n", $1, $3, $2}\'',
+  // List containers (LXC). pct list columns: VMID Status Lock Name
+  '$SUDO $PCT list 2>/dev/null | awk \'NR>1 {printf "lxc=%s|%s|%s\\n", $1, $2, $NF}\'',
+  // For each KVM/LXC, dump every `netN:` line of its config verbatim and
+  // let JS parse the MAC and the optional ip=cidr. Doing the regex in awk
+  // tripped up mawk (Debian default) on the {5} quantifier; JS is portable
+  // and the data volume is tiny so the round-trip cost is negligible.
+  'for v in $($SUDO $QM list 2>/dev/null | awk \'NR>1 {print $1}\'); do ' +
+    '$SUDO $QM config $v 2>/dev/null | grep -E \'^net[0-9]+:\' | ' +
+    'while IFS= read -r line; do printf "kvmnet=%s|%s\\n" "$v" "$line"; done; ' +
+  'done',
+  'for v in $($SUDO $PCT list 2>/dev/null | awk \'NR>1 {print $1}\'); do ' +
+    '$SUDO $PCT config $v 2>/dev/null | grep -E \'^net[0-9]+:\' | ' +
+    'while IFS= read -r line; do printf "lxcnet=%s|%s\\n" "$v" "$line"; done; ' +
+  'done',
+  // ARP cache (excludes FAILED state to avoid stale entries). `ip` is
+  // accessible to non-root users so no sudo is needed here.
+  'ip neigh show 2>/dev/null | awk \'{ ' +
+    'ip=$1; mac=""; state=$NF; ' +
+    'for (i=2;i<=NF;i++) if ($i=="lladdr") { mac=tolower($(i+1)); break } ' +
+    'if (mac!="" && state!="FAILED") printf "neigh=%s|%s\\n", ip, mac ' +
+  '}\'',
+].join('; ');
+
+function discoverProxmox(target, user, port) {
+  return new Promise((resolve) => {
+    const args = [
+      '-F', '/dev/null',
+      '-o', 'BatchMode=yes',
+      '-o', 'ConnectTimeout=5',
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'UserKnownHostsFile=/dev/null',
+      '-o', 'LogLevel=ERROR',
+      '-p', String(port || 22),
+      `${user}@${target}`,
+      PROXMOX_DISCOVER_SCRIPT,
+    ];
+    execFile('ssh', args, { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+      if (err) return resolve({ ok: false });
+      const vms     = new Map();   // vmid -> { vmid, type, name, status, macs:[], ip }
+      const arpByMac = new Map();  // mac (lower) -> ip
+      const macRe = /[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}/;
+      const ipRe  = /(?:^|[ ,])ip=([\d.]+)(?:\/\d+)?/;
+      for (const line of stdout.split('\n')) {
+        let m;
+        if ((m = line.match(/^kvm=(\d+)\|([^|]*)\|(.*)$/))) {
+          vms.set(m[1], { vmid: parseInt(m[1], 10), type: 'kvm', status: m[2].trim(), name: m[3].trim(), macs: [], ip: null });
+        } else if ((m = line.match(/^lxc=(\d+)\|([^|]*)\|(.*)$/))) {
+          vms.set(m[1], { vmid: parseInt(m[1], 10), type: 'lxc', status: m[2].trim(), name: m[3].trim(), macs: [], ip: null });
+        } else if ((m = line.match(/^kvmnet=(\d+)\|(.*)$/))) {
+          const v = vms.get(m[1]);
+          if (v) {
+            const mm = m[2].match(macRe);
+            if (mm) v.macs.push(mm[0].toLowerCase());
+          }
+        } else if ((m = line.match(/^lxcnet=(\d+)\|(.*)$/))) {
+          const v = vms.get(m[1]);
+          if (v) {
+            const mm = m[2].match(macRe);
+            if (mm) v.macs.push(mm[0].toLowerCase());
+            // LXC containers often hard-code their IP in `pct config`, so use
+            // it directly without falling back to the ARP cross-reference.
+            if (!v.ip) {
+              const im = m[2].match(ipRe);
+              if (im) v.ip = im[1];
+            }
+          }
+        } else if ((m = line.match(/^neigh=([\d.]+)\|([0-9a-f:]{17})$/))) {
+          arpByMac.set(m[2], m[1]);
+        }
+      }
+      // Cross-reference: for any VM still missing an IP, pick the first MAC
+      // that appears in the Proxmox node's ARP cache.
+      for (const v of vms.values()) {
+        if (v.ip) continue;
+        for (const mac of v.macs) {
+          if (arpByMac.has(mac)) { v.ip = arpByMac.get(mac); break; }
+        }
+      }
+      resolve({ ok: true, vms: Array.from(vms.values()).sort((a, b) => a.vmid - b.vmid) });
     });
   });
 }

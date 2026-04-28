@@ -9,6 +9,9 @@ const servicesInput = document.getElementById('services-input');
 const nameInput     = document.getElementById('name-input');
 const demoBanner    = document.getElementById('demo-banner');
 
+const discoveryLabel = document.getElementById('discovery-label');
+const discoveryInput = document.getElementById('discovery-input');
+
 const advancedToggle = document.getElementById('advanced-toggle');
 const advancedBlock  = document.getElementById('advanced-block');
 const thresholdInputs = {
@@ -19,6 +22,8 @@ const thresholdInputs = {
   disk_warn: document.getElementById('disk-warn-input'),
   disk_crit: document.getElementById('disk-crit-input'),
 };
+
+const windowsHost = document.getElementById('windows-host');
 
 const editDialog   = document.getElementById('edit-dialog');
 const editForm     = document.getElementById('edit-form');
@@ -43,14 +48,23 @@ const editThresholdInputs = {
 };
 let editingHostId = null;
 
-// id -> window ('1h'|'24h'|'7d'|'30d') for hosts whose chart panel is open
+// host id -> window ('1h'|'24h'|'7d'|'30d'), remembered across re-opens
 const expanded = new Map();
-// id -> { pct: Chart, load: Chart } so we can destroy them before re-rendering
+// host id -> { pct: Chart, load: Chart } — kept so we can destroy before redraw
 const charts = new Map();
-// Set of host ids whose details panel is open
-const detailsOpen = new Set();
-// id -> last details payload (cached so loadHosts() can re-render without a new SSH fetch)
+// host id -> last details payload (cached so re-opens skip the SSH round-trip)
 const detailsCache = new Map();
+// host id -> last discovered VMs payload
+const discoverCache = new Map();
+
+// Floating-window registry. Each entry: { id, type, hostId, el, body }.
+// `id` is a per-window unique key like "chart-12" so opening the same
+// chart twice just brings the existing one to front.
+const fwRegistry = new Map();
+let fwTopZ = 100;
+// Cascading offset for newly-opened windows so they don't all stack on
+// top of each other when the user opens several in a row.
+let fwSpawnOffset = 0;
 
 const alertsBtn      = document.getElementById('alerts-button');
 const alertsCountEl  = document.getElementById('alerts-count');
@@ -208,7 +222,13 @@ function renderHost(h) {
     : '--';
 
   const title = h.name ? escapeHTML(h.name) : escapeHTML(targetDisplay);
-  const sub   = h.name ? `<p class="ip">${escapeHTML(targetDisplay)}</p>` : '';
+  const parentTag = h.parent_id
+    ? `<span class="parent-tag" title="Discovered from ${escapeHTML(h.parent_name || '')}">via ${escapeHTML(h.parent_name || ('#' + h.parent_id))}</span>`
+    : '';
+  const subInner = h.name ? escapeHTML(targetDisplay) : '';
+  const sub = (subInner || parentTag)
+    ? `<p class="ip">${subInner}${subInner && parentTag ? ' &middot; ' : ''}${parentTag}</p>`
+    : '';
 
   let metricsHtml = '';
   if (h.check_type === 'ssh' && h.cpu != null) {
@@ -225,13 +245,6 @@ function renderHost(h) {
     `;
   }
 
-  const chartToggle = h.check_type === 'ssh'
-    ? `<button class="chart-toggle" data-id="${h.id}" title="Toggle history">chart</button>`
-    : '';
-  const detailsToggle = h.check_type === 'ssh'
-    ? `<button class="details-toggle" data-id="${h.id}" title="Toggle details">details</button>`
-    : '';
-  const editBtn = `<button class="edit-host" data-id="${h.id}" title="Edit host" aria-label="Edit host">edit</button>`;
   const hasOverride = h.check_type === 'ssh' && (
     h.cpu_warn != null || h.cpu_crit != null ||
     h.ram_warn != null || h.ram_crit != null ||
@@ -240,32 +253,27 @@ function renderHost(h) {
   const overrideBadge = hasOverride
     ? `<span class="override-badge" title="Per-host thresholds set">th</span>`
     : '';
-
-  const isOpen = expanded.has(h.id);
-  const activeWin = expanded.get(h.id) || '1h';
-  const winBtn = (w) =>
-    `<button data-id="${h.id}" data-window="${w}" class="win-btn${w === activeWin ? ' active' : ''}">${w}</button>`;
-
-  const chartPanel = h.check_type === 'ssh'
-    ? `
-      <div class="chart-panel" id="chart-panel-${h.id}"${isOpen ? '' : ' hidden'}>
-        <div class="window-picker">
-          ${winBtn('1h')}${winBtn('24h')}${winBtn('7d')}${winBtn('30d')}
-        </div>
-        <canvas id="chart-pct-${h.id}"  class="chart-pct"></canvas>
-        <canvas id="chart-load-${h.id}" class="chart-load"></canvas>
-      </div>`
-    : '';
-
-  const detailsPanel = h.check_type === 'ssh'
-    ? `
-      <div class="details-panel" id="details-panel-${h.id}"${detailsOpen.has(h.id) ? '' : ' hidden'}>
-        <div class="details-actions">
-          <button class="details-refresh" data-id="${h.id}">refresh</button>
-        </div>
-        <div class="details-body" id="details-body-${h.id}"><p class="details-loading">loading…</p></div>
-      </div>`
-    : '';
+  // Build the kebab-menu items based on what makes sense for this host.
+  // SSH-only actions stay hidden for ICMP/TCP hosts so the menu stays tight.
+  const menuItems = [];
+  if (h.check_type === 'ssh') {
+    menuItems.push(`<button class="card-menu-item" data-id="${h.id}" data-action="chart">chart</button>`);
+    menuItems.push(`<button class="card-menu-item" data-id="${h.id}" data-action="details">details</button>`);
+  }
+  if (h.discovery === 'proxmox') {
+    menuItems.push(`<button class="card-menu-item" data-id="${h.id}" data-action="discover">discover</button>`);
+  }
+  menuItems.push(`<button class="card-menu-item" data-id="${h.id}" data-action="edit">edit</button>`);
+  menuItems.push(`<button class="card-menu-item card-menu-danger" data-id="${h.id}" data-action="delete">delete</button>`);
+  // Kebab + popup menu, anchored to the card header. The wrapper gets
+  // position:relative so the floating list pins to the button.
+  const cardMenu = `
+    <div class="card-menu">
+      <button class="card-menu-btn" data-id="${h.id}" aria-haspopup="menu" aria-expanded="false" aria-label="Card actions">⋯</button>
+      <div class="card-menu-list" id="card-menu-${h.id}" role="menu" hidden>
+        ${menuItems.join('')}
+      </div>
+    </div>`;
 
   return `
     <article class="card ${statusClass}">
@@ -275,16 +283,11 @@ function renderHost(h) {
         ${alertBadge}
         ${overrideBadge}
         <span class="mode">${mode}</span>
-        ${detailsToggle}
-        ${chartToggle}
-        ${editBtn}
-        <button class="delete" data-id="${h.id}" title="Remove host" aria-label="Remove host">x</button>
+        ${cardMenu}
       </header>
       <h2>${title}</h2>
       ${sub}
       ${metricsHtml}
-      ${detailsPanel}
-      ${chartPanel}
       <footer>
         <span class="latency">${latency}</span>
         <span class="checked">${relativeTime(h.last_ts)}</span>
@@ -293,6 +296,8 @@ function renderHost(h) {
   `;
 }
 
+// We only ever draw one chart at a time now (it lives in the modal), but
+// keep the per-host map so re-opens don't leak Chart.js instances.
 function destroyCharts(id) {
   const c = charts.get(id);
   if (!c) return;
@@ -387,7 +392,9 @@ function humanBytes(n) {
 }
 
 function renderDetails(id, data) {
-  const body = document.getElementById(`details-body-${id}`);
+  const w = fwRegistry.get(`details-${id}`);
+  if (!w) return;
+  const body = w.body;
   if (!body) return;
 
   let svcHtml = '';
@@ -463,7 +470,8 @@ function renderDetails(id, data) {
 }
 
 async function loadDetails(id) {
-  const body = document.getElementById(`details-body-${id}`);
+  const w = fwRegistry.get(`details-${id}`);
+  const body = w ? w.body : null;
   if (body) body.innerHTML = '<p class="details-loading">loading…</p>';
   try {
     const res = await fetch(`/api/hosts/${id}/details`);
@@ -480,120 +488,405 @@ async function loadDetails(id) {
   }
 }
 
+function renderDiscover(id, data) {
+  const w = fwRegistry.get(`discover-${id}`);
+  if (!w) return;
+  const body = w.body;
+  if (!body) return;
+  const vms = (data && data.vms) || [];
+  if (!vms.length) {
+    body.innerHTML = '<p class="details-empty">No VMs or containers found on this Proxmox node.</p>';
+    return;
+  }
+  const rows = vms.map((v) => {
+    const ipDisplay = v.ip ? escapeHTML(v.ip) : '<span class="discover-no-ip">no IP</span>';
+    const disabled  = v.ip ? '' : ' disabled';
+    return `
+      <tr class="discover-row${v.ip ? '' : ' discover-row-noip'}">
+        <td><input type="checkbox" class="discover-pick" data-id="${id}" data-vmid="${v.vmid}"${disabled}></td>
+        <td>${v.vmid}</td>
+        <td>${escapeHTML(v.type)}</td>
+        <td>${escapeHTML(v.name)}</td>
+        <td>${escapeHTML(v.status)}</td>
+        <td>${ipDisplay}</td>
+      </tr>`;
+  }).join('');
+  body.innerHTML = `
+    <table class="discover-table">
+      <thead><tr><th></th><th>vmid</th><th>type</th><th>name</th><th>status</th><th>ip</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="discover-adopt">
+      <input type="text" class="discover-user" data-id="${id}" placeholder="ssh user for adopted hosts" autocomplete="off">
+      <button class="discover-adopt-btn" data-id="${id}">adopt selected</button>
+    </div>
+    <p class="discover-error" id="discover-error-${id}" hidden></p>
+  `;
+}
+
+async function loadDiscover(id) {
+  const w = fwRegistry.get(`discover-${id}`);
+  const body = w ? w.body : null;
+  if (body) body.innerHTML = '<p class="details-loading">probing…</p>';
+  try {
+    const res = await fetch(`/api/hosts/${id}/discover`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (body) body.innerHTML = `<p class="details-error">${escapeHTML(data.error || 'Discovery failed')}</p>`;
+      return;
+    }
+    const data = await res.json();
+    discoverCache.set(id, data);
+    renderDiscover(id, data);
+  } catch {
+    if (body) body.innerHTML = '<p class="details-error">Network error</p>';
+  }
+}
+
+async function adoptSelected(id) {
+  const w = fwRegistry.get(`discover-${id}`);
+  const panel = w ? w.body : null;
+  if (!panel) return;
+  const userInput = panel.querySelector('.discover-user');
+  const errEl     = document.getElementById(`discover-error-${id}`);
+  if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+  const sshUser = userInput ? userInput.value.trim() : '';
+  if (!sshUser) {
+    if (errEl) { errEl.textContent = 'SSH user is required'; errEl.hidden = false; }
+    return;
+  }
+  const cached = discoverCache.get(id);
+  const all = (cached && cached.vms) || [];
+  const picked = [...panel.querySelectorAll('.discover-pick:checked')]
+    .map((cb) => parseInt(cb.dataset.vmid, 10));
+  const vms = all.filter((v) => picked.includes(v.vmid) && v.ip);
+  if (!vms.length) {
+    if (errEl) { errEl.textContent = 'Pick at least one VM with an IP'; errEl.hidden = false; }
+    return;
+  }
+  try {
+    const res = await fetch(`/api/hosts/${id}/adopt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssh_user: sshUser, vms }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (errEl) { errEl.textContent = data.error || 'Adoption failed'; errEl.hidden = false; }
+      return;
+    }
+    // Skipped reasons (UNIQUE collisions, no IP) are surfaced inline so the user
+    // doesn't silently lose VMs they thought they were adopting.
+    if (data.skipped && data.skipped.length && errEl) {
+      errEl.textContent = `Skipped: ${data.skipped.map((s) => s.vmid + ' (' + s.reason + ')').join(', ')}`;
+      errEl.hidden = false;
+    }
+    closeFloatingWindow(`discover-${id}`);
+    discoverCache.delete(id);
+    loadHosts();
+  } catch {
+    if (errEl) { errEl.textContent = 'Network error'; errEl.hidden = false; }
+  }
+}
+
 async function loadHosts() {
   try {
     const res = await fetch('/api/hosts');
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const hosts = await res.json();
 
-    // innerHTML assignment destroys <canvas> nodes — release chart instances first.
-    for (const id of charts.keys()) destroyCharts(id);
-
     if (hosts.length === 0) {
       hostsEl.innerHTML = '<p class="empty">No hosts yet. Add one above.</p>';
-      return;
+    } else {
+      hostsEl.innerHTML = hosts.map(renderHost).join('');
     }
-    hostsEl.innerHTML = hosts.map(renderHost).join('');
 
-    // Redraw any panels that were open before the refresh.
+    // The dialogs live outside `hostsEl` so they survive this innerHTML
+    // reflow — no panel restoration needed. We do clean up state for hosts
+    // that no longer exist (e.g. someone deleted a host while a dialog
+    // referencing it was somehow still open in another tab).
     const liveIds = new Set(hosts.map((h) => h.id));
-    for (const id of expanded.keys()) {
-      if (!liveIds.has(id)) { expanded.delete(id); continue; }
-      drawChart(id);
+    for (const id of [...detailsCache.keys()])  if (!liveIds.has(id)) detailsCache.delete(id);
+    for (const id of [...discoverCache.keys()]) if (!liveIds.has(id)) discoverCache.delete(id);
+    for (const id of [...expanded.keys()])      if (!liveIds.has(id)) expanded.delete(id);
+    // Close any floating windows whose host has just been deleted.
+    for (const w of [...fwRegistry.values()]) {
+      if (!liveIds.has(w.hostId)) closeFloatingWindow(w.key);
     }
-    for (const id of detailsOpen) {
-      if (!liveIds.has(id)) {
-        detailsOpen.delete(id);
-        detailsCache.delete(id);
-        continue;
-      }
-      const cached = detailsCache.get(id);
-      if (cached) renderDetails(id, cached);
-    }
-  } catch {
-    showError('Could not load hosts');
+  } catch (e) {
+    console.error('loadHosts failed:', e);
+    showError('Could not load hosts: ' + (e && e.message ? e.message : e));
   }
 }
 
-hostsEl.addEventListener('click', async (e) => {
-  const del = e.target.closest('.delete');
-  if (del) {
-    const id = del.dataset.id;
-    if (!confirm('Remove this host?')) return;
-    try {
-      const res = await fetch(`/api/hosts/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error();
-      const numId = parseInt(id, 10);
-      expanded.delete(numId);
-      detailsOpen.delete(numId);
-      detailsCache.delete(numId);
-      loadHosts();
-    } catch {
-      showError('Could not delete host');
-    }
+function findHostName(id) {
+  const card = document.querySelector(`.card-menu-btn[data-id="${id}"]`);
+  if (!card) return `#${id}`;
+  const h2 = card.closest('article.card')?.querySelector('h2');
+  return h2 ? h2.textContent : `#${id}`;
+}
+
+function closeAllCardMenus() {
+  document.querySelectorAll('.card-menu-list').forEach((m) => { m.hidden = true; });
+  document.querySelectorAll('.card-menu-btn').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+}
+
+function bringToFront(el) {
+  fwTopZ += 1;
+  el.style.zIndex = String(fwTopZ);
+}
+
+// Drag-by-header: any mousedown on a non-button area of the window header
+// captures the cursor and moves the window. Mouse leaves grid via document
+// listeners so dragging fast off the title still works.
+function makeDraggable(el, handle) {
+  let dx = 0, dy = 0;
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button, input, select')) return;
+    bringToFront(el);
+    const rect = el.getBoundingClientRect();
+    dx = e.clientX - rect.left;
+    dy = e.clientY - rect.top;
+    el.classList.add('fw-dragging');
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+    e.preventDefault();
+  });
+  function onMove(e) {
+    // No clamp on purpose — the user can drag the window anywhere within
+    // the browser viewport, including right up against (and past) the edges
+    // if the browser spans multiple monitors. For real multi-monitor moves
+    // across separate browser windows, use the pop-out button.
+    el.style.left = (e.clientX - dx) + 'px';
+    el.style.top  = (e.clientY - dy) + 'px';
+  }
+  function onUp() {
+    el.classList.remove('fw-dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup',   onUp);
+  }
+}
+
+// Build a floating window. Returns { el, body, titleEl, headerActions } so
+// callers can inject the right contents/refresh button per type.
+function createFloatingWindow({ key, title, hostId, type, width, onClose }) {
+  // If a window with the same key (e.g. "chart-12") already exists, just
+  // bring it to front instead of opening a duplicate.
+  const existing = fwRegistry.get(key);
+  if (existing) { bringToFront(existing.el); return null; }
+
+  const el = document.createElement('div');
+  el.className = 'fw';
+  el.dataset.key = key;
+  if (width) el.style.width = width;
+  // Cascade spawn position so consecutive opens don't fully overlap.
+  fwSpawnOffset = (fwSpawnOffset + 28) % 200;
+  const startX = Math.max(40, Math.round(window.innerWidth  / 2 - 360 + fwSpawnOffset));
+  const startY = Math.max(40, 80 + fwSpawnOffset);
+  el.style.left = startX + 'px';
+  el.style.top  = startY + 'px';
+
+  el.innerHTML = `
+    <div class="fw-header">
+      <h2 class="fw-title"></h2>
+      <div class="fw-header-actions"></div>
+      <button type="button" class="fw-popout" title="Open in separate browser window (drag to another monitor)" aria-label="Pop out">↗</button>
+      <button type="button" class="fw-close" aria-label="Close">x</button>
+    </div>
+    <div class="fw-body"></div>`;
+
+  const titleEl       = el.querySelector('.fw-title');
+  const headerActions = el.querySelector('.fw-header-actions');
+  const body          = el.querySelector('.fw-body');
+  const header        = el.querySelector('.fw-header');
+  titleEl.textContent = title;
+
+  el.querySelector('.fw-close').addEventListener('click', () => closeFloatingWindow(key));
+  el.querySelector('.fw-popout').addEventListener('click', () => popOutWindow(key));
+  el.addEventListener('mousedown', () => bringToFront(el));
+  makeDraggable(el, header);
+
+  windowsHost.appendChild(el);
+  bringToFront(el);
+
+  fwRegistry.set(key, { key, type, hostId, el, body, titleEl, headerActions, onClose });
+  return fwRegistry.get(key);
+}
+
+function closeFloatingWindow(key) {
+  const w = fwRegistry.get(key);
+  if (!w) return;
+  if (typeof w.onClose === 'function') w.onClose();
+  w.el.remove();
+  fwRegistry.delete(key);
+}
+
+// Open the same view as a real browser window — the OS chrome handles the
+// drag (including across monitors), resize, fullscreen, etc. The popup
+// loads index.html?window=<type>&host=<id>, which app.js detects below
+// and runs in a stripped-down popup mode that fills the whole window.
+function popOutWindow(key) {
+  const w = fwRegistry.get(key);
+  if (!w) return;
+  const url = `/?window=${w.type}&host=${w.hostId}`;
+  // The named target makes a second click reuse the existing OS window
+  // instead of opening yet another one.
+  const popup = window.open(url, `didactic-${key}`, 'width=900,height=620,resizable=yes,scrollbars=yes');
+  if (!popup) {
+    showError('Pop-out blocked — allow popups for this site to use this feature');
     return;
   }
+  closeFloatingWindow(key);
+}
 
-  const detailsBtn = e.target.closest('.details-toggle');
-  if (detailsBtn) {
-    const id = parseInt(detailsBtn.dataset.id, 10);
-    const panel = document.getElementById(`details-panel-${id}`);
-    if (!panel) return;
-    if (detailsOpen.has(id)) {
-      detailsOpen.delete(id);
-      panel.hidden = true;
-    } else {
-      detailsOpen.add(id);
-      panel.hidden = false;
-      const cached = detailsCache.get(id);
-      if (cached) renderDetails(id, cached); else loadDetails(id);
-    }
-    return;
+function closeWindowsForHost(hostId) {
+  for (const [key, w] of fwRegistry) {
+    if (w.hostId === hostId) closeFloatingWindow(key);
   }
+}
 
-  const refreshBtn = e.target.closest('.details-refresh');
-  if (refreshBtn) {
-    const id = parseInt(refreshBtn.dataset.id, 10);
-    loadDetails(id);
-    return;
-  }
-
-  const editBtn = e.target.closest('.edit-host');
-  if (editBtn) {
-    openEditDialog(parseInt(editBtn.dataset.id, 10));
-    return;
-  }
-
-  const toggle = e.target.closest('.chart-toggle');
-  if (toggle) {
-    const id = parseInt(toggle.dataset.id, 10);
-    const panel = document.getElementById(`chart-panel-${id}`);
-    if (!panel) return;
-    if (expanded.has(id)) {
-      expanded.delete(id);
-      destroyCharts(id);
-      panel.hidden = true;
-    } else {
-      expanded.set(id, '1h');
-      panel.hidden = false;
-      drawChart(id);
-    }
-    return;
-  }
-
-  const win = e.target.closest('.win-btn');
-  if (win) {
-    const id = parseInt(win.dataset.id, 10);
-    expanded.set(id, win.dataset.window);
-    // refresh active class without a full re-render
-    const panel = document.getElementById(`chart-panel-${id}`);
-    if (panel) {
-      panel.querySelectorAll('.win-btn').forEach((b) =>
-        b.classList.toggle('active', b.dataset.window === win.dataset.window));
-    }
+function openChartWindow(id) {
+  const key = `chart-${id}`;
+  if (!expanded.has(id)) expanded.set(id, '1h');
+  const w = createFloatingWindow({
+    key,
+    type: 'chart',
+    hostId: id,
+    title: `history — ${findHostName(id)}`,
+    width: '780px',
+    onClose: () => destroyCharts(id),
+  });
+  if (!w) return; // already open, brought to front
+  // Window picker + canvases.
+  w.body.innerHTML = `
+    <div class="window-picker"></div>
+    <canvas class="chart-pct"  id="chart-pct-${id}"></canvas>
+    <canvas class="chart-load" id="chart-load-${id}"></canvas>`;
+  const picker = w.body.querySelector('.window-picker');
+  const renderPicker = () => {
+    const active = expanded.get(id) || '1h';
+    picker.innerHTML = ['1h', '24h', '7d', '30d']
+      .map((p) => `<button data-window="${p}" class="win-btn${p === active ? ' active' : ''}">${p}</button>`)
+      .join('');
+  };
+  renderPicker();
+  picker.addEventListener('click', (e) => {
+    const wb = e.target.closest('.win-btn');
+    if (!wb) return;
+    expanded.set(id, wb.dataset.window);
+    renderPicker();
     drawChart(id);
+  });
+  drawChart(id);
+}
+
+function openDetailsWindow(id) {
+  const key = `details-${id}`;
+  const w = createFloatingWindow({
+    key,
+    type: 'details',
+    hostId: id,
+    title: `details — ${findHostName(id)}`,
+    width: '720px',
+  });
+  if (!w) return;
+  // Refresh button in the header so users can re-probe without losing position.
+  const refresh = document.createElement('button');
+  refresh.type = 'button';
+  refresh.className = 'fw-action';
+  refresh.textContent = 'refresh';
+  refresh.addEventListener('click', () => loadDetails(id));
+  w.headerActions.appendChild(refresh);
+  w.body.innerHTML = '<p class="details-loading">loading…</p>';
+  const cached = detailsCache.get(id);
+  if (cached) renderDetails(id, cached);
+  else loadDetails(id);
+}
+
+function openDiscoverWindow(id) {
+  const key = `discover-${id}`;
+  const w = createFloatingWindow({
+    key,
+    type: 'discover',
+    hostId: id,
+    title: `discover — ${findHostName(id)}`,
+    width: '760px',
+  });
+  if (!w) return;
+  const refresh = document.createElement('button');
+  refresh.type = 'button';
+  refresh.className = 'fw-action';
+  refresh.textContent = 'refresh';
+  refresh.addEventListener('click', () => loadDiscover(id));
+  w.headerActions.appendChild(refresh);
+  w.body.innerHTML = '<p class="details-loading">probing…</p>';
+  // Adopt button lives inside the rendered table; delegate clicks here.
+  w.body.addEventListener('click', (e) => {
+    if (e.target.closest('.discover-adopt-btn')) adoptSelected(id);
+  });
+  const cached = discoverCache.get(id);
+  if (cached) renderDiscover(id, cached);
+  else loadDiscover(id);
+}
+
+async function deleteHost(id) {
+  if (!confirm('Remove this host?')) return;
+  try {
+    const res = await fetch(`/api/hosts/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error();
+    expanded.delete(id);
+    detailsCache.delete(id);
+    discoverCache.delete(id);
+    closeWindowsForHost(id);
+    loadHosts();
+  } catch {
+    showError('Could not delete host');
   }
+}
+
+hostsEl.addEventListener('click', (e) => {
+  // Kebab-menu toggle: open the dropdown for this card and close the others.
+  const menuBtn = e.target.closest('.card-menu-btn');
+  if (menuBtn) {
+    const id = parseInt(menuBtn.dataset.id, 10);
+    const list = document.getElementById(`card-menu-${id}`);
+    const willOpen = list && list.hidden;
+    closeAllCardMenus();
+    if (willOpen) {
+      list.hidden = false;
+      menuBtn.setAttribute('aria-expanded', 'true');
+    }
+    e.stopPropagation();
+    return;
+  }
+
+  // One handler for every kebab item, dispatched by data-action.
+  const item = e.target.closest('.card-menu-item');
+  if (item) {
+    const id = parseInt(item.dataset.id, 10);
+    closeAllCardMenus();
+    switch (item.dataset.action) {
+      case 'chart':    openChartWindow(id); break;
+      case 'details':  openDetailsWindow(id); break;
+      case 'discover': openDiscoverWindow(id); break;
+      case 'edit':     openEditDialog(id); break;
+      case 'delete':   deleteHost(id); break;
+    }
+    return;
+  }
+
+  // Buttons inside the discover dialog body — adopt and refresh — bubble up
+  // to a document-level listener below since they live outside `hostsEl`.
 });
+
+// Click outside any kebab menu closes them all.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.card-menu')) closeAllCardMenus();
+});
+
+// Per-window close / refresh / adopt / window-picker handlers all live
+// inside createFloatingWindow + the open*Window functions, so there are
+// no more single-shared listeners to maintain here.
 
 let lastCheckType = checkType.value;
 function updateFormFields() {
@@ -602,12 +895,14 @@ function updateFormFields() {
   portInput.hidden = (t === 'icmp');
   servicesInput.hidden = (t !== 'ssh');
   advancedToggle.hidden = (t !== 'ssh');
+  discoveryLabel.hidden = (t !== 'ssh');
   userInput.required = (t === 'ssh');
   portInput.required = (t === 'tcp');
   portInput.placeholder = (t === 'ssh') ? 'port (default 22)' : 'port';
   if (t !== 'ssh') {
     userInput.value = '';
     servicesInput.value = '';
+    discoveryInput.checked = false;
     closeAdvanced();
     for (const inp of Object.values(thresholdInputs)) inp.value = '';
   }
@@ -656,6 +951,7 @@ form.addEventListener('submit', async (e) => {
       const v = inp.value.trim();
       if (v !== '') payload[key] = v;
     }
+    if (discoveryInput.checked) payload.discovery = 'proxmox';
   }
   try {
     const res = await fetch('/api/hosts', {
@@ -673,6 +969,7 @@ form.addEventListener('submit', async (e) => {
     portInput.value = '';
     servicesInput.value = '';
     nameInput.value = '';
+    discoveryInput.checked = false;
     for (const inp of Object.values(thresholdInputs)) inp.value = '';
     checkType.value = 'icmp';
     updateFormFields();
@@ -792,8 +1089,57 @@ editForm.addEventListener('submit', async (e) => {
   }
 });
 
-loadConfig();
-loadAlerts();
-loadHosts();
-setInterval(loadHosts,  5000);
-setInterval(loadAlerts, 7000);
+// Pop-out / standalone mode: when the URL has ?window=<type>&host=<id>,
+// hide the dashboard chrome and only show that one floating window
+// stretched to fill the browser window. The OS handles dragging this
+// browser window between monitors natively.
+async function maybeRunPopupMode() {
+  const params = new URLSearchParams(window.location.search);
+  const type = params.get('window');
+  const id   = parseInt(params.get('host'), 10);
+  if (!['chart', 'details', 'discover'].includes(type) || !Number.isFinite(id)) return false;
+
+  document.body.classList.add('popup-mode');
+
+  let hostName = `#${id}`;
+  try {
+    const res = await fetch('/api/hosts');
+    if (res.ok) {
+      const hosts = await res.json();
+      const h = hosts.find((x) => x.id === id);
+      if (h) hostName = h.name || h.ip;
+    }
+  } catch { /* fall through */ }
+  document.title = `${type} — ${hostName}`;
+
+  // Reuse the open*Window functions. We can't rely on findHostName()
+  // because the cards aren't rendered in popup mode, so monkey-patch a
+  // single-shot lookup for the title.
+  const realFindHostName = findHostName;
+  window.findHostName = () => hostName; // not used — left for clarity
+
+  if (type === 'chart')    openChartWindow(id);
+  if (type === 'details')  openDetailsWindow(id);
+  if (type === 'discover') openDiscoverWindow(id);
+
+  // Fix the title (open*Window above used findHostName which returned #id).
+  const w = fwRegistry.get(`${type}-${id}`);
+  if (w) {
+    w.titleEl.textContent = `${type} — ${hostName}`;
+    w.el.classList.add('fw-popup');
+    // The OS window already has a close button; the in-app close + pop-out
+    // make no sense in this mode.
+    w.el.querySelector('.fw-close').remove();
+    w.el.querySelector('.fw-popout').remove();
+  }
+  return true;
+}
+
+(async () => {
+  if (await maybeRunPopupMode()) return;
+  loadConfig();
+  loadAlerts();
+  loadHosts();
+  setInterval(loadHosts,  15000);
+  setInterval(loadAlerts, 7000);
+})();

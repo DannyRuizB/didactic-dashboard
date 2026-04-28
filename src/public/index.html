@@ -30,7 +30,7 @@
         <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme">theme: dark</button>
       </div>
     </div>
-    <p class="sub">simple network monitor &middot; v0.5.2</p>
+    <p class="sub">simple network monitor &middot; v0.6.0</p>
   </header>
 
   <main>
@@ -50,6 +50,9 @@
       <input id="port-input" type="number" placeholder="port" min="1" max="65535" class="field-port port-field" hidden>
       <input id="services-input" type="text" placeholder="services (e.g. ssh,cron,nginx)" class="field-ssh services-field" hidden>
       <input id="name-input" type="text"   placeholder="name (optional)">
+      <label id="discovery-label" class="discovery-label field-ssh" hidden>
+        <input id="discovery-input" type="checkbox"> Proxmox node
+      </label>
       <button type="button" id="advanced-toggle" class="advanced-toggle field-ssh" hidden aria-expanded="false">+ thresholds</button>
       <button type="submit">+ add</button>
       <fieldset id="advanced-block" class="advanced-block field-ssh" hidden>
@@ -73,6 +76,8 @@
 
     <section id="hosts" class="hosts"></section>
   </main>
+
+  <div id="windows-host" class="windows-host"></div>
 
   <dialog id="edit-dialog" class="edit-dialog">
     <form id="edit-form" method="dialog" autocomplete="off">
@@ -113,11 +118,11 @@
   </dialog>
 
   <footer class="page-footer">
-    <span>didactic-dashboard v0.5.2</span>
+    <span>didactic-dashboard v0.6.0</span>
     <a href="https://github.com/DannyRuizB/didactic-dashboard" target="_blank" rel="noopener">github.com/DannyRuizB/didactic-dashboard</a>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=0.6.0"></script>
 </body>
 </html>

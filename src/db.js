@@ -24,6 +24,8 @@ db.exec(`
     ram_crit   REAL,
     disk_warn  REAL,
     disk_crit  REAL,
+    discovery  TEXT,
+    parent_id  INTEGER REFERENCES hosts(id) ON DELETE SET NULL,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
   );
   CREATE TABLE IF NOT EXISTS pings (
@@ -73,6 +75,11 @@ if (!hasCol('ram_warn'))   db.exec('ALTER TABLE hosts ADD COLUMN ram_warn REAL')
 if (!hasCol('ram_crit'))   db.exec('ALTER TABLE hosts ADD COLUMN ram_crit REAL');
 if (!hasCol('disk_warn'))  db.exec('ALTER TABLE hosts ADD COLUMN disk_warn REAL');
 if (!hasCol('disk_crit'))  db.exec('ALTER TABLE hosts ADD COLUMN disk_crit REAL');
+if (!hasCol('discovery'))  db.exec('ALTER TABLE hosts ADD COLUMN discovery TEXT');
+// SQLite ALTER TABLE can't add a REFERENCES constraint, but a plain INTEGER
+// column is enough — the FK is only used for ON DELETE SET NULL on fresh DBs;
+// on migrated DBs we handle dangling parent_ids in JS.
+if (!hasCol('parent_id'))  db.exec('ALTER TABLE hosts ADD COLUMN parent_id INTEGER');
 
 // Older rows that had a port but no explicit type should be treated as TCP.
 db.exec("UPDATE hosts SET check_type = 'tcp' WHERE port IS NOT NULL AND check_type = 'icmp'");
@@ -81,6 +88,8 @@ const stmts = {
   list: db.prepare(`
     SELECT h.id, h.ip, h.name, h.port, h.check_type, h.ssh_user, h.services,
            h.cpu_warn, h.cpu_crit, h.ram_warn, h.ram_crit, h.disk_warn, h.disk_crit,
+           h.discovery, h.parent_id,
+           parent.name AS parent_name, parent.ip AS parent_ip,
            h.created_at,
            p.ts         AS last_ts,
            p.ok         AS last_ok,
@@ -91,6 +100,7 @@ const stmts = {
            m.load1      AS load1,
            m.uptime_s   AS uptime_s
     FROM hosts h
+    LEFT JOIN hosts parent ON parent.id = h.parent_id
     LEFT JOIN (
       SELECT host_id, MAX(ts) AS max_ts FROM pings GROUP BY host_id
     ) lp ON lp.host_id = h.id
@@ -102,20 +112,26 @@ const stmts = {
     ORDER BY h.created_at ASC
   `),
   insertHost: db.prepare(`
-    INSERT INTO hosts (ip, name, port, check_type, ssh_user, services)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO hosts (ip, name, port, check_type, ssh_user, services, discovery, parent_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `),
   deleteHost:    db.prepare('DELETE FROM hosts WHERE id = ?'),
   allHosts:      db.prepare(`
     SELECT id, ip, name, port, check_type, ssh_user, services,
-           cpu_warn, cpu_crit, ram_warn, ram_crit, disk_warn, disk_crit
+           cpu_warn, cpu_crit, ram_warn, ram_crit, disk_warn, disk_crit,
+           discovery, parent_id
     FROM hosts
   `),
   hostById:      db.prepare(`
     SELECT id, ip, name, port, check_type, ssh_user, services,
-           cpu_warn, cpu_crit, ram_warn, ram_crit, disk_warn, disk_crit
+           cpu_warn, cpu_crit, ram_warn, ram_crit, disk_warn, disk_crit,
+           discovery, parent_id
     FROM hosts WHERE id = ?
   `),
+  // After deleting a host, drop the parent_id of any orphaned children so
+  // they keep working as standalone hosts (matches the FK ON DELETE SET NULL
+  // behaviour, which the ALTER TABLE migration can't add retroactively).
+  orphanChildren: db.prepare('UPDATE hosts SET parent_id = NULL WHERE parent_id = ?'),
   updateHost: db.prepare(`
     UPDATE hosts SET
       name      = ?,
@@ -172,7 +188,7 @@ const stmts = {
 
 module.exports = {
   listHosts: () => stmts.list.all(),
-  addHost: (ip, name, port, checkType, sshUser, services) => {
+  addHost: (ip, name, port, checkType, sshUser, services, discovery, parentId) => {
     const info = stmts.insertHost.run(
       ip,
       name || null,
@@ -180,6 +196,8 @@ module.exports = {
       checkType,
       sshUser || null,
       services || null,
+      discovery || null,
+      parentId || null,
     );
     return {
       id: info.lastInsertRowid,
@@ -189,6 +207,8 @@ module.exports = {
       check_type: checkType,
       ssh_user: sshUser || null,
       services: services || null,
+      discovery: discovery || null,
+      parent_id: parentId || null,
       cpu_warn: null, cpu_crit: null,
       ram_warn: null, ram_crit: null,
       disk_warn: null, disk_crit: null,
@@ -209,7 +229,10 @@ module.exports = {
       id,
     );
   },
-  deleteHost: (id) => stmts.deleteHost.run(id),
+  deleteHost: (id) => {
+    stmts.orphanChildren.run(id);
+    stmts.deleteHost.run(id);
+  },
   getAllHosts: () => stmts.allHosts.all(),
   getHostById: (id) => stmts.hostById.get(id),
   recordPing: (hostId, ok, latencyMs) => {

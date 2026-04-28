@@ -12,7 +12,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Work in progress — v0.5.2 released, more features coming.
+> Work in progress — v0.6.0 released, more features coming.
 
 ## Screenshots
 
@@ -39,6 +39,10 @@ Active alerts — bell icon in the header opens a dropdown with hosts crossing C
 Edit host — click the `edit` button on any card to rename, change port / SSH user / monitored services, or override the global alert thresholds for that host (empty fields fall back to the defaults):
 
 ![Edit host](docs/screenshot-edit.png)
+
+Pop-out windows — every action (chart, details, discover) opens as a floating window inside the dashboard, but the `↗` button in the window header re-opens it as a real browser window so you can drag it to a second monitor:
+
+![Pop-out window](docs/screenshot-popup.png)
 
 ## Live demo
 
@@ -72,8 +76,9 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 ## Features
 
-### v0.5.2 (current)
-- **Per-host threshold overrides**: every SSH host can override the global CPU / RAM / disk thresholds from the UI. Set them at add-time in the `+ thresholds` block, or click `edit` on any card to change them later. A small `th` badge shows up on cards with custom thresholds. Leave a field empty to fall back to the global env var.
+### v0.6.0 (current)
+- **Auto-discovery from a Proxmox node**: tick *Proxmox node* when adding an SSH host and a `discover` button shows up on its card. Clicking it lists every VM and LXC container on that Proxmox node — without installing anything inside the guests — by cross-referencing `qm list` / `pct list` / `qm config` / `pct config` with the Proxmox node's ARP cache (`ip neigh show`) to resolve each guest's IP. Tick the ones you want, type a shared SSH user, and they're adopted as monitored hosts with a `via <parent>` tag on their card.
+- **Per-host threshold overrides** (v0.5.2): every SSH host can override the global CPU / RAM / disk thresholds from the UI. Set them at add-time in the `+ thresholds` block, or click `edit` on any card to change them later. A small `th` badge shows up on cards with custom thresholds. Leave a field empty to fall back to the global env var.
 - **Edit host**: every card now has an `edit` button so you can rename a host, change its port / ssh user / monitored services, and tune its alert thresholds without deleting and re-creating it.
 - **Email (SMTP) notifications** (v0.5.1): set `SMTP_HOST` + `ALERT_EMAIL_TO` (plus the usual auth) and every alert transition is sent as an email with auto-built subject and HTML / plain-text body. README has a step-by-step for Gmail (app password) and notes for other providers.
 - **Alerts engine** (v0.5.0): every check evaluates the host against thresholds and fires `warning` / `critical` alerts when a metric crosses them. A bell badge in the header counts active alerts and opens a dropdown listing them; affected cards get a small `!` indicator. A consecutive-failure counter (default 2) prevents single-blip false positives on the host-DOWN alert.
@@ -98,7 +103,7 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 - Warm amber theme with light / dark toggle (persists in localStorage)
 
 ### Planned
-- v0.6 — Auto-discovery on local network
+- More discovery types (Docker hosts, libvirt) — only Proxmox in v0.6.0
 
 ## Why
 
@@ -122,7 +127,7 @@ A lightweight, didactic alternative to Zabbix — simple enough to read, modify 
 - [x] v0.5.0 — Alerts engine + webhook notifications
 - [x] v0.5.1 — Email (SMTP) notifications
 - [x] v0.5.2 — Per-host threshold overrides from the UI
-- [ ] v0.6 — Auto-discovery on local network
+- [x] v0.6.0 — Proxmox auto-discovery (parent → VMs / LXC adoption)
 
 ## SSH check setup
 
