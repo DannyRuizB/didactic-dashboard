@@ -106,6 +106,49 @@ Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` 
 
 A lightweight, didactic alternative to Zabbix — simple enough to read, modify and learn from. Great for home labs and small sysadmin practice environments.
 
+## Architecture
+
+Everything runs in a **single Node.js process inside one Docker container** — no separate API service, no separate database, no worker queue. SQLite is embedded via `better-sqlite3`, the probe scheduler is a `setInterval` in the same process, and the alerts engine fires inline after each check.
+
+```mermaid
+flowchart LR
+    Browser["Browser<br/>vanilla HTML/CSS/JS · Chart.js"]
+
+    subgraph Container["Single Docker container · Node.js process"]
+        direction TB
+        Express["Express HTTP server<br/>port 3000"]
+        API["REST API<br/>/api/hosts · /api/alerts<br/>/api/hosts/:id/{history,details,discover,adopt}"]
+        Static["Static files<br/>src/public/"]
+        Scheduler["Probe scheduler<br/>setInterval(PING_INTERVAL)"]
+        Probes["Probes<br/>ICMP · TCP · SSH metrics · Proxmox discover"]
+        AlertsEngine["Alerts engine<br/>evaluate → fire / resolve"]
+        Notifier["Notifier<br/>webhook · SMTP (nodemailer)"]
+        DB[("SQLite<br/>hosts · pings · metrics · alerts")]
+
+        Express --> API
+        Express --> Static
+        API --> DB
+        Scheduler --> Probes
+        Probes --> DB
+        Probes --> AlertsEngine
+        AlertsEngine --> DB
+        AlertsEngine --> Notifier
+    end
+
+    Remote["Remote hosts<br/>ICMP · TCP · SSH"]
+    Proxmox["Proxmox node<br/>qm · pct · ip neigh"]
+    Webhook["Webhook endpoint<br/>Discord · Slack · ntfy.sh"]
+    SMTP["SMTP server"]
+
+    Browser -- "HTTP poll 15s" --> Express
+    Probes -- "ping / tcp connect / ssh" --> Remote
+    Probes -- "ssh + qm/pct" --> Proxmox
+    Notifier -- "POST JSON" --> Webhook
+    Notifier -- "TLS SMTP" --> SMTP
+```
+
+> If you load `docker-compose.yml` into [DockerScope](https://github.com/DannyRuizB/dockerscope) you'll only see **one node** — that's accurate, the deployment unit really is one container. The diagram above is the *logical* breakdown of what that single process does internally.
+
 ## Tech stack
 
 - Node.js + Express (backend)
