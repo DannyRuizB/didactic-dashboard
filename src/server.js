@@ -17,6 +17,7 @@ const {
   escapeHtml,
 } = require('./validation');
 const { decideMetricTransition, decideStatusTransition } = require('./alerts');
+const { parseProxmoxDiscovery } = require('./discovery');
 
 const PORT           = parseInt(process.env.PORT          || '3000',  10);
 const PING_INTERVAL  = parseInt(process.env.PING_INTERVAL || '10000', 10);
@@ -579,47 +580,7 @@ function discoverProxmox(target, user, port) {
     ];
     execFile('ssh', args, { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => {
       if (err) return resolve({ ok: false });
-      const vms     = new Map();   // vmid -> { vmid, type, name, status, macs:[], ip }
-      const arpByMac = new Map();  // mac (lower) -> ip
-      const macRe = /[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}/;
-      const ipRe  = /(?:^|[ ,])ip=([\d.]+)(?:\/\d+)?/;
-      for (const line of stdout.split('\n')) {
-        let m;
-        if ((m = line.match(/^kvm=(\d+)\|([^|]*)\|(.*)$/))) {
-          vms.set(m[1], { vmid: parseInt(m[1], 10), type: 'kvm', status: m[2].trim(), name: m[3].trim(), macs: [], ip: null });
-        } else if ((m = line.match(/^lxc=(\d+)\|([^|]*)\|(.*)$/))) {
-          vms.set(m[1], { vmid: parseInt(m[1], 10), type: 'lxc', status: m[2].trim(), name: m[3].trim(), macs: [], ip: null });
-        } else if ((m = line.match(/^kvmnet=(\d+)\|(.*)$/))) {
-          const v = vms.get(m[1]);
-          if (v) {
-            const mm = m[2].match(macRe);
-            if (mm) v.macs.push(mm[0].toLowerCase());
-          }
-        } else if ((m = line.match(/^lxcnet=(\d+)\|(.*)$/))) {
-          const v = vms.get(m[1]);
-          if (v) {
-            const mm = m[2].match(macRe);
-            if (mm) v.macs.push(mm[0].toLowerCase());
-            // LXC containers often hard-code their IP in `pct config`, so use
-            // it directly without falling back to the ARP cross-reference.
-            if (!v.ip) {
-              const im = m[2].match(ipRe);
-              if (im) v.ip = im[1];
-            }
-          }
-        } else if ((m = line.match(/^neigh=([\d.]+)\|([0-9a-f:]{17})$/))) {
-          arpByMac.set(m[2], m[1]);
-        }
-      }
-      // Cross-reference: for any VM still missing an IP, pick the first MAC
-      // that appears in the Proxmox node's ARP cache.
-      for (const v of vms.values()) {
-        if (v.ip) continue;
-        for (const mac of v.macs) {
-          if (arpByMac.has(mac)) { v.ip = arpByMac.get(mac); break; }
-        }
-      }
-      resolve({ ok: true, vms: Array.from(vms.values()).sort((a, b) => a.vmid - b.vmid) });
+      resolve({ ok: true, vms: parseProxmoxDiscovery(stdout) });
     });
   });
 }
