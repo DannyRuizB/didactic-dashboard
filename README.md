@@ -304,7 +304,3 @@ Built by **[Danny Ruiz](https://github.com/DannyRuizB)** — systems & network a
 ## License
 
 MIT — see [LICENSE](LICENSE)
-
-## Author
-
-Danny Ruiz — [github.com/DannyRuizB](https://github.com/DannyRuizB)
