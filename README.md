@@ -44,6 +44,15 @@ Pop-out windows — every action (chart, details, discover) opens as a floating 
 
 ![Pop-out window](docs/screenshot-popup.png)
 
+## What this demonstrates
+
+A practical systems-administration and monitoring project. Skills on display:
+
+- **Systems monitoring** — real-time host status with CPU / RAM / disk metrics, threshold-based alerting and historical charts.
+- **Linux administration over SSH** — inspecting remote hosts: `systemd` services, top processes, logged-in users and network traffic.
+- **Backend & persistence** — a Node.js service with a SQLite time-series history and real-time updates.
+- **Containers & deployment** — image published to Docker Hub, public demo on Render.
+
 ## Live demo
 
 A public demo with pre-seeded hosts (Google, Cloudflare, GitHub, Docker Hub, example.com) is running at **https://didactic-dashboard.onrender.com** — hosted on Render free tier, so the first request after idle may take ~30s to wake up. SSH check mode is disabled on the demo, and only **public** hosts work — LAN IPs (`192.168.x`, `10.x`...) are unreachable from the cloud sandbox. To monitor your own network, self-host with the Quick start above.
@@ -287,6 +296,10 @@ Set `SMTP_HOST` and `ALERT_EMAIL_TO` to enable the email channel. Subject and bo
 ```
 
 **Other providers.** Any SMTP server works (Outlook 365, Mailgun, SendGrid, your corporate relay…). For development without sending real mail, [Mailtrap](https://mailtrap.io) and [MailHog](https://github.com/mailhog/MailHog) both expose a fake SMTP that captures messages in a UI.
+
+## About
+
+Built by **[Danny Ruiz](https://github.com/DannyRuizB)** — systems & network administrator (ASIR, *Administración de Sistemas Informáticos en Red*). [More projects →](https://github.com/DannyRuizB?tab=repositories)
 
 ## License
 
