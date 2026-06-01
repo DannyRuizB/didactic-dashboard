@@ -16,6 +16,7 @@ const {
   metricLabel,
   escapeHtml,
 } = require('./validation');
+const { decideMetricTransition, decideStatusTransition } = require('./alerts');
 
 const PORT           = parseInt(process.env.PORT          || '3000',  10);
 const PING_INTERVAL  = parseInt(process.env.PING_INTERVAL || '10000', 10);
@@ -747,36 +748,35 @@ async function resolveAlert(alertRow, hostInfo, currentValue) {
 }
 
 async function evaluateAlerts(hostInfo, metrics, isUp) {
-  if (isUp) {
-    downCounter.delete(hostInfo.id);
-    const active = db.getActiveAlert(hostInfo.id, 'status');
-    if (active) await resolveAlert(active, hostInfo, null);
-  } else {
-    const count = (downCounter.get(hostInfo.id) || 0) + 1;
-    downCounter.set(hostInfo.id, count);
-    if (count >= ALERT_DOWN_AFTER) {
-      const active = db.getActiveAlert(hostInfo.id, 'status');
-      if (!active) await fireAlert(hostInfo, 'status', 'critical', null, null);
-    }
-  }
+  // Host status (UP/DOWN): the pure decision lives in decideStatusTransition;
+  // here we just apply it — update the in-memory counter and fire/resolve.
+  const activeDown = db.getActiveAlert(hostInfo.id, 'status');
+  const status = decideStatusTransition({
+    isUp,
+    downCount: downCounter.get(hostInfo.id) || 0,
+    downAfter: ALERT_DOWN_AFTER,
+    hasActiveDownAlert: !!activeDown,
+  });
+  if (status.downCount === 0) downCounter.delete(hostInfo.id);
+  else downCounter.set(hostInfo.id, status.downCount);
+  if (status.action === 'resolve') await resolveAlert(activeDown, hostInfo, null);
+  else if (status.action === 'fire') await fireAlert(hostInfo, 'status', 'critical', null, null);
+
   if (!metrics) return;
   const effective = resolveThresholds(hostInfo);
   for (const metric of ['cpu', 'ram', 'disk']) {
     const value = metrics[metric];
-    const thresholds = effective[metric];
-    const newClass = classifyMetric(value, thresholds);
+    const newClass = classifyMetric(value, effective[metric]);
     const active = db.getActiveAlert(hostInfo.id, metric);
-    if (newClass) {
-      if (!active) {
-        await fireAlert(hostInfo, metric, newClass.level, value, newClass.threshold);
-      } else if (active.level !== newClass.level) {
-        // level changed (warning -> critical or vice versa): close old, open new
-        await resolveAlert(active, hostInfo, value);
-        await fireAlert(hostInfo, metric, newClass.level, value, newClass.threshold);
-      }
-      // else: same level already firing — stay silent, no webhook spam
-    } else if (active) {
+    const action = decideMetricTransition(active ? active.level : null, newClass);
+    if (action === 'fire') {
+      await fireAlert(hostInfo, metric, newClass.level, value, newClass.threshold);
+    } else if (action === 'resolve') {
       await resolveAlert(active, hostInfo, value);
+    } else if (action === 'rotate') {
+      // level changed (warning <-> critical): close old, open new
+      await resolveAlert(active, hostInfo, value);
+      await fireAlert(hostInfo, metric, newClass.level, value, newClass.threshold);
     }
   }
 }
