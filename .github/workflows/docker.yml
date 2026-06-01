@@ -1,0 +1,68 @@
+name: docker
+
+# Builds the Docker image on every push and pull request so a broken
+# Dockerfile never lands on main. Publishing to Docker Hub is optional and
+# only runs on version tags (v*) when the DOCKERHUB_* secrets are set — see
+# the note at the bottom of this file.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          tags: didactic-dashboard:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Optional CD: publish to Docker Hub on version tags.
+  # Enable by adding repo secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN
+  # (Docker Hub > Account Settings > Personal access tokens).
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve version
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            dannyruizb/didactic-dashboard:${{ steps.meta.outputs.version }}
+            dannyruizb/didactic-dashboard:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

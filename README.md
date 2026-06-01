@@ -2,6 +2,7 @@
 
 ### [Try the live demo →](https://didactic-dashboard.onrender.com)
 
+[![docker](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/docker.yml/badge.svg)](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/docker.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-20-3c873a.svg)
 [![Docker Hub](https://img.shields.io/docker/v/dannyruizb/didactic-dashboard?label=docker%20hub&logo=docker&sort=semver)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
