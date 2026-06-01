@@ -1,0 +1,26 @@
+name: tests
+
+# Unit tests (Node's built-in test runner) on every push and pull request.
+# The tested module has no external dependencies, so no install step is needed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run tests
+        run: node --test

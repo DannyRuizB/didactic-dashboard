@@ -4,6 +4,18 @@ const path = require('path');
 const { execFile } = require('child_process');
 const nodemailer = require('nodemailer');
 const db = require('./db');
+const {
+  isValidTarget,
+  isValidSshUser,
+  parseServices,
+  parsePort,
+  parseThreshold,
+  parseThresholdOverrides,
+  classifyMetric,
+  parseWhoLine,
+  metricLabel,
+  escapeHtml,
+} = require('./validation');
 
 const PORT           = parseInt(process.env.PORT          || '3000',  10);
 const PING_INTERVAL  = parseInt(process.env.PING_INTERVAL || '10000', 10);
@@ -41,66 +53,6 @@ const DEMO_SEEDS = [];
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-function isValidTarget(str) {
-  if (typeof str !== 'string' || str.length === 0 || str.length > 253) return false;
-  return /^[a-zA-Z0-9.\-_]+$/.test(str);
-}
-
-function isValidSshUser(str) {
-  if (typeof str !== 'string' || str.length === 0 || str.length > 32) return false;
-  return /^[a-zA-Z0-9._-]+$/.test(str);
-}
-
-function parseServices(raw) {
-  if (raw === undefined || raw === null || raw === '') return { ok: true, value: null };
-  if (typeof raw !== 'string') return { ok: false };
-  if (raw.length > 512) return { ok: false };
-  const items = raw.split(',').map((s) => s.trim()).filter(Boolean);
-  if (items.length > 20) return { ok: false };
-  for (const s of items) {
-    if (s.length > 64) return { ok: false };
-    if (!/^[a-zA-Z0-9._@-]+$/.test(s)) return { ok: false };
-  }
-  return { ok: true, value: items.length ? items.join(',') : null };
-}
-
-function parsePort(raw) {
-  if (raw === undefined || raw === null || raw === '') return null;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) return undefined;
-  return n;
-}
-
-// Per-host threshold override: a number 0-100 (one decimal accepted) or null
-// when the user wants to fall back to the global env var. Returns `undefined`
-// to signal "invalid input" so the caller can return 400.
-function parseThreshold(raw) {
-  if (raw === undefined || raw === null || raw === '') return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0 || n > 100) return undefined;
-  return Math.round(n * 10) / 10;
-}
-
-// Pull the 6 optional override fields out of a request body. Returns either
-// `{ ok: true, values: {...} }` with each metric's warn/crit (null = use global)
-// or `{ ok: false, error }` on bad input or warn >= crit.
-function parseThresholdOverrides(body) {
-  const out = {};
-  for (const key of ['cpu_warn', 'cpu_crit', 'ram_warn', 'ram_crit', 'disk_warn', 'disk_crit']) {
-    const v = parseThreshold(body[key]);
-    if (v === undefined) return { ok: false, error: `Invalid ${key} (0-100)` };
-    out[key] = v;
-  }
-  for (const m of ['cpu', 'ram', 'disk']) {
-    const w = out[`${m}_warn`];
-    const c = out[`${m}_crit`];
-    if (w != null && c != null && !(w < c)) {
-      return { ok: false, error: `${m.toUpperCase()}: warning must be lower than critical` };
-    }
-  }
-  return { ok: true, values: out };
-}
 
 // Resolve effective thresholds for a host: per-host override if set, else
 // the global default from env vars.
@@ -479,34 +431,6 @@ function sshCheck(target, user, port) {
   });
 }
 
-// `who` output varies between distros (Debian 13 prefixes the tty with `sshd`,
-// older distros don't, the `from` part may be missing for local logins). This
-// parser is permissive: pull the `(from)` from the end of the line if present,
-// take the first token as user, and pick the first remaining token that looks
-// like a tty (pts/N, ttyN, seat0, console, tmux*) — falling back to the
-// second token if nothing matches.
-function parseWhoLine(line) {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  let rest = trimmed;
-  let from = 'local';
-  const fromMatch = rest.match(/\(([^)]+)\)\s*$/);
-  if (fromMatch) {
-    from = fromMatch[1];
-    rest = rest.slice(0, fromMatch.index).trim();
-  }
-  const tokens = rest.split(/\s+/);
-  if (!tokens.length) return null;
-  const user = tokens[0];
-  const ttyRegex = /^(pts\/\d+|tty\d+|seat\d+|console|tmux\S*)$/;
-  const tty = tokens.slice(1).find((t) => ttyRegex.test(t)) || tokens[1] || '';
-  // `who` on Debian 13 emits a row per sshd-session (no pty) for every active
-  // SSH connection — including the one our probe just opened. Drop those so
-  // the panel shows real interactive sessions only.
-  if (tty === 'sshd') return null;
-  return { user, tty, from };
-}
-
 // On-demand details probe: services state + top 5 processes + logged-in
 // users + default-iface RX/TX. Service names are validated/sanitised at
 // write time, so they are safe to interpolate into the remote shell script.
@@ -703,13 +627,6 @@ function discoverProxmox(target, user, port) {
 // a single transient blip. Resets on the first successful check.
 const downCounter = new Map();
 
-function classifyMetric(value, thresholds) {
-  if (value == null || isNaN(value)) return null;
-  if (value >= thresholds.critical) return { level: 'critical', threshold: thresholds.critical };
-  if (value >= thresholds.warning)  return { level: 'warning',  threshold: thresholds.warning };
-  return null;
-}
-
 async function sendWebhook(payload) {
   if (!ALERT_WEBHOOK_URL) return;
   try {
@@ -722,14 +639,6 @@ async function sendWebhook(payload) {
   } catch (e) {
     console.warn('[alerts] webhook failed:', e.message);
   }
-}
-
-function metricLabel(metric) {
-  if (metric === 'cpu')    return 'CPU';
-  if (metric === 'ram')    return 'RAM';
-  if (metric === 'disk')   return 'Disk';
-  if (metric === 'status') return 'host DOWN';
-  return metric;
 }
 
 function buildEmailContent(payload) {
@@ -787,12 +696,6 @@ ${valueLine}${thresholdLn}Time:      ${timestamp}
 </body></html>`;
 
   return { subject, text, html };
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
 }
 
 async function sendEmail(payload) {

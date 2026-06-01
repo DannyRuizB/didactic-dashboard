@@ -4,7 +4,8 @@
   "description": "Simple self-hosted monitoring dashboard",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
