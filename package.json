@@ -11,7 +11,7 @@
   "dependencies": {
     "better-sqlite3": "^11.3.0",
     "express": "^4.21.0",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^8.0.10"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
