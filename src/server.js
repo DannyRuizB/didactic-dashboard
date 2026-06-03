@@ -9,7 +9,6 @@ const {
   isValidSshUser,
   parseServices,
   parsePort,
-  parseThreshold,
   parseThresholdOverrides,
   classifyMetric,
   parseWhoLine,

@@ -3,6 +3,7 @@
 ### [Try the live demo →](https://didactic-dashboard.onrender.com)
 
 [![tests](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/tests.yml/badge.svg)](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/tests.yml)
+[![lint](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/lint.yml/badge.svg)](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/lint.yml)
 [![docker](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/docker.yml/badge.svg)](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/docker.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-20-3c873a.svg)

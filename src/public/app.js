@@ -397,7 +397,7 @@ function renderDetails(id, data) {
   const body = w.body;
   if (!body) return;
 
-  let svcHtml = '';
+  let svcHtml;
   if (data.services && data.services.length) {
     svcHtml = `
       <h3 class="details-h">services</h3>
@@ -434,7 +434,7 @@ function renderDetails(id, data) {
       </table>`;
   }
 
-  let userHtml = '';
+  let userHtml;
   if (data.users && data.users.length) {
     userHtml = `
       <h3 class="details-h">logged-in users</h3>
@@ -1114,9 +1114,8 @@ async function maybeRunPopupMode() {
 
   // Reuse the open*Window functions. We can't rely on findHostName()
   // because the cards aren't rendered in popup mode, so monkey-patch a
-  // single-shot lookup for the title.
-  const realFindHostName = findHostName;
-  window.findHostName = () => hostName; // not used — left for clarity
+  // single-shot lookup that just returns the title we already resolved.
+  window.findHostName = () => hostName;
 
   if (type === 'chart')    openChartWindow(id);
   if (type === 'details')  openDetailsWindow(id);

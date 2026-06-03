@@ -5,12 +5,18 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "lint": "eslint 'src/**/*.js' 'test/**/*.js'",
     "test": "node --test"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
     "express": "^4.21.0",
     "nodemailer": "^6.9.16"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0"
   },
   "license": "MIT",
   "author": "Danny Ruiz Boluda"
