@@ -86,6 +86,23 @@ Open http://localhost:3000 and start adding hosts by IP or hostname.
 
 Data persists in the `didactic-data` volume (Option A) or `./data/dashboard.db` (Option B).
 
+### Option C — Kubernetes
+
+Manifests for a k3s (or any Kubernetes) cluster live in [`deploy/k8s/`](deploy/k8s/):
+Namespace, PersistentVolumeClaim for the SQLite data, Deployment with
+readiness/liveness probes, Service and a Traefik Ingress.
+
+```bash
+kubectl apply -f deploy/k8s/
+kubectl -n didactic-dashboard rollout status deploy/didactic-dashboard
+
+# The Ingress answers on the host dashboard.local — map it in /etc/hosts, or:
+curl -H "Host: dashboard.local" http://localhost/
+```
+
+Single replica by design: SQLite sits on a ReadWriteOnce volume, so the
+Deployment uses the `Recreate` strategy instead of rolling updates.
+
 ## Features
 
 ### v0.6.0 (current)

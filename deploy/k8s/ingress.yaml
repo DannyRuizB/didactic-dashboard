@@ -1,0 +1,22 @@
+# Exposes the app through Traefik (k3s's built-in ingress controller) on
+# port 80 for requests with Host: dashboard.local. Map that name to the
+# node's IP in your hosts file, or test with:
+#   curl -H "Host: dashboard.local" http://localhost/
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: didactic-dashboard
+  namespace: didactic-dashboard
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: dashboard.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: didactic-dashboard
+                port:
+                  number: 80
