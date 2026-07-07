@@ -1,0 +1,8 @@
+# Local Terraform state and caches — never commit these.
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfvars
+crash.log
+
+# Keep .terraform.lock.hcl versioned: it pins provider versions for everyone.

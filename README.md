@@ -103,6 +103,21 @@ curl -H "Host: dashboard.local" http://localhost/
 Single replica by design: SQLite sits on a ReadWriteOnce volume, so the
 Deployment uses the `Recreate` strategy instead of rolling updates.
 
+### Option D — AWS (Terraform + Ansible)
+
+IaC deployment to a single hardened EC2 VM lives in [`deploy/aws/`](deploy/aws/):
+Terraform creates a Debian 13 t3.micro (security group: SSH from your IP only,
+HTTP public), then Ansible hardens it (SSH, UFW, fail2ban, unattended upgrades)
+and starts the container on port 80.
+
+```bash
+cd deploy/aws
+./deploy.sh            # ./deploy.sh destroy tears it down
+```
+
+Prerequisites, per-step manual equivalent, costs and teardown in
+[`deploy/aws/README.md`](deploy/aws/README.md).
+
 ## Features
 
 ### v0.6.0 (current)
