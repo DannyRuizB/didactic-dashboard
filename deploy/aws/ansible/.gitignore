@@ -1,0 +1,7 @@
+# Cloned/installed by deploy.sh — never committed
+vendor/
+roles/
+collections/
+# Generated from terraform output
+inventory.ini
+*.retry

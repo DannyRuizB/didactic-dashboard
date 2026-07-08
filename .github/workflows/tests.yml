@@ -1,7 +1,8 @@
 name: tests
 
 # Unit tests (Node's built-in test runner) on every push and pull request.
-# The tested module has no external dependencies, so no install step is needed.
+# Dependencies are needed since v0.7.0: the metrics tests require prom-client,
+# and the /metrics e2e test boots the real server (express, better-sqlite3...).
 on:
   push:
     branches: [main]
@@ -21,6 +22,9 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
 
       - name: Run tests
         run: node --test

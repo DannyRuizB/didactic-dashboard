@@ -1,0 +1,52 @@
+# The app itself. One replica on purpose: SQLite lives on a
+# ReadWriteOnce volume, so this app scales up (bigger node), not out.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: didactic-dashboard
+  namespace: didactic-dashboard
+  labels:
+    app: didactic-dashboard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # RWO volume: the old pod must release it before the new one mounts it
+  selector:
+    matchLabels:
+      app: didactic-dashboard
+  template:
+    metadata:
+      labels:
+        app: didactic-dashboard
+    spec:
+      containers:
+        - name: didactic-dashboard
+          image: dannyruizb/didactic-dashboard:latest
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          # Same check the CI smoke test does: the API must answer.
+          readinessProbe:
+            httpGet:
+              path: /api/hosts
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/hosts
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: didactic-dashboard-data

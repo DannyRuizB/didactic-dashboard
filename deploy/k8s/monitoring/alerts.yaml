@@ -1,0 +1,46 @@
+# Alerting rules for the app, loaded by the kube-prometheus-stack Prometheus.
+# View them in http://prometheus.local (Alerts tab) or in Alertmanager.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: didactic-dashboard
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack # Prometheus only picks up rules with this label
+spec:
+  groups:
+    - name: didactic-dashboard
+      rules:
+        # The scrape target is down, or it disappeared entirely (absent()
+        # catches the case where the Service/ServiceMonitor is gone, which
+        # a plain "== 0" would silently miss).
+        - alert: DashboardDown
+          expr: up{job="didactic-dashboard"} == 0 or absent(up{job="didactic-dashboard"})
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: didactic-dashboard is not being scraped
+            description: Prometheus could not scrape didactic-dashboard /metrics for 2 minutes. The app may be down.
+
+        # The app's own probes say one of the hosts it watches is down.
+        # didactic_host_up is a per-host gauge (1 = up, 0 = down).
+        - alert: MonitoredHostDown
+          expr: didactic_host_up == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: A host monitored by didactic-dashboard is down
+            description: The dashboard has reported this host as down for 5 minutes.
+
+        # The dashboard is up but has nothing to monitor - probably a
+        # misconfiguration or an emptied database.
+        - alert: NoHostsMonitored
+          expr: didactic_monitored_hosts == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: didactic-dashboard has no hosts configured
+            description: The dashboard is running but has monitored zero hosts for 10 minutes.

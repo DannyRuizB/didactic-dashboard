@@ -1,0 +1,9 @@
+---
+# Collections only. The hardening roles come from
+# https://github.com/DannyRuizB/debian-hardening-ansible — a playbook repo
+# without Galaxy metadata, so ansible-galaxy cannot install it as a role.
+# deploy.sh git-clones it into ./vendor/ and ansible.cfg adds it to roles_path.
+collections:
+  - name: community.docker # app container (play 2)
+  - name: ansible.posix # authorized_key, used by the admin_user role
+  - name: community.general # sudoers/ufw modules, used by the hardening roles

@@ -1,0 +1,21 @@
+# Tells the kube-prometheus-stack Prometheus to scrape the app's /metrics.
+# Lives in "monitoring" like the rest of the stack, so it needs a
+# namespaceSelector to reach the Service in "didactic-dashboard".
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: didactic-dashboard
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack # Prometheus only picks up monitors with this label
+spec:
+  namespaceSelector:
+    matchNames:
+      - didactic-dashboard
+  selector:
+    matchLabels:
+      app: didactic-dashboard # matches the label on the app Service
+  endpoints:
+    - port: http # the named port on the Service (80 -> container 3000)
+      path: /metrics
+      interval: 30s

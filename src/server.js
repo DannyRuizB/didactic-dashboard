@@ -4,6 +4,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const nodemailer = require('nodemailer');
 const db = require('./db');
+const { createMetrics } = require('./metrics');
 const {
   isValidTarget,
   isValidSshUser,
@@ -17,6 +18,10 @@ const {
 } = require('./validation');
 const { decideMetricTransition, decideStatusTransition } = require('./alerts');
 const { parseProxmoxDiscovery } = require('./discovery');
+
+// Named metricsBundle (not "metrics") because checkAll() and evaluateAlerts()
+// already use `metrics` for the per-host SSH metric values.
+const metricsBundle = createMetrics(db.listHosts, db.listActiveAlerts);
 
 const PORT           = parseInt(process.env.PORT          || '3000',  10);
 const PING_INTERVAL  = parseInt(process.env.PING_INTERVAL || '10000', 10);
@@ -82,6 +87,15 @@ app.get('/api/config', (_req, res) => {
     webhook_configured: !!ALERT_WEBHOOK_URL,
     email_configured:   emailEnabled,
   });
+});
+
+// Prometheus exposition (default process metrics + didactic_* series).
+// Disabled in the public demo: the endpoint is unauthenticated and
+// didactic_host_up labels would leak registered host names/IPs.
+app.get('/metrics', async (_req, res) => {
+  if (DEMO_MODE) return res.status(404).end();
+  res.set('Content-Type', metricsBundle.register.contentType);
+  res.end(await metricsBundle.register.metrics());
 });
 
 app.get('/api/hosts', (_req, res) => {
@@ -695,6 +709,7 @@ function alertPayload(event, hostInfo, alert, value) {
 
 async function fireAlert(hostInfo, metric, level, value, threshold) {
   const id = db.insertAlert(hostInfo.id, metric, level, value, threshold);
+  metricsBundle.alertsFired.inc({ metric, level });
   console.log(`[alerts] FIRED ${level} ${metric} on ${hostInfo.name || hostInfo.ip} (id=${id}, value=${value}, threshold=${threshold})`);
   const payload = alertPayload('alert.fired', hostInfo, { id, metric, level, threshold }, value);
   await Promise.all([sendWebhook(payload), sendEmail(payload)]);
@@ -744,6 +759,7 @@ async function evaluateAlerts(hostInfo, metrics, isUp) {
 async function checkAll() {
   const hosts = db.getAllHosts();
   await Promise.all(hosts.map(async (h) => {
+    const endProbe = metricsBundle.probeDuration.startTimer({ check_type: h.check_type });
     let result;
     let metrics = null;
     if (h.check_type === 'ssh') {
@@ -760,6 +776,9 @@ async function checkAll() {
       result = await icmpCheck(h.ip);
       db.recordPing(h.id, result.ok, result.latency);
     }
+    // Stop the timer before evaluateAlerts so webhook/email latency never
+    // pollutes the probe duration histogram.
+    endProbe({ result: result.ok ? 'success' : 'failure' });
     try {
       await evaluateAlerts(h, metrics, !!result.ok);
     } catch (e) {

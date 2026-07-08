@@ -1,0 +1,16 @@
+# Stable internal address for the pods. The Ingress routes here; pods can
+# die and be replaced and this name/IP stays the same.
+apiVersion: v1
+kind: Service
+metadata:
+  name: didactic-dashboard
+  namespace: didactic-dashboard
+  labels:
+    app: didactic-dashboard # the ServiceMonitor in deploy/k8s/monitoring selects on this
+spec:
+  selector:
+    app: didactic-dashboard
+  ports:
+    - name: http # ServiceMonitors reference ports by name, so it needs one
+      port: 80
+      targetPort: 3000
