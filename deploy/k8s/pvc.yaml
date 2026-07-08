@@ -1,0 +1,14 @@
+# Persistent storage for the SQLite database (/app/data). Uses k3s's
+# default StorageClass (local-path), which provisions a directory on the
+# node — the data survives pod restarts and redeploys.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: didactic-dashboard-data
+  namespace: didactic-dashboard
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

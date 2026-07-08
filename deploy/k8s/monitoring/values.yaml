@@ -1,0 +1,80 @@
+# Values for prometheus-community/kube-prometheus-stack
+# Pinned chart version: 87.10.1 (app version v0.92.1) -- see install.sh
+# Tuned for a single-node k3s lab on WSL2 with ~5GB of RAM to spare.
+
+# --- k3s specifics -----------------------------------------------------------
+# In k3s, etcd/controller-manager/scheduler/kube-proxy run inside the k3s
+# process and don't expose the metrics endpoints the chart expects.
+# Disabling them avoids permanently-down targets and false "component down" alerts.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+# On WSL2 "/" is not a shared/slave mount, so the default host-rootfs mount
+# makes node-exporter fail with CreateContainerError. Filesystem metrics for
+# the host root are lost; everything else still works.
+prometheus-node-exporter:
+  hostRootFsMount:
+    enabled: false
+
+# --- Prometheus --------------------------------------------------------------
+prometheus:
+  prometheusSpec:
+    retention: 7d # a week of history is plenty for a lab
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - prometheus.local
+    paths:
+      - /
+    pathType: Prefix
+
+# --- Grafana -----------------------------------------------------------------
+grafana:
+  adminPassword: didactic-grafana # local lab only, never do this in production
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    size: 1Gi
+  deploymentStrategy:
+    type: Recreate # RollingUpdate deadlocks on the single RWO volume during upgrades
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grafana.local
+    path: /
+
+# --- Alertmanager ------------------------------------------------------------
+# Enabled with the chart's default config: everything goes to the "null"
+# receiver, so alerts are visible in the UI but not sent anywhere.
+alertmanager:
+  enabled: true
+
+# node-exporter and kube-state-metrics stay enabled (chart defaults).

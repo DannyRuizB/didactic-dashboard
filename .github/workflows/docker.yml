@@ -1,9 +1,10 @@
 name: docker
 
-# Builds the Docker image on every push and pull request so a broken
-# Dockerfile never lands on main. Publishing to Docker Hub is optional and
-# only runs on version tags (v*) when the DOCKERHUB_* secrets are set — see
-# the note at the bottom of this file.
+# Builds the Docker image on every push and pull request, then smoke-tests it:
+# the freshly built container must answer on :3000 before the build is
+# considered good. Publishing to Docker Hub is optional and only runs on
+# version tags (v*) when the DOCKERHUB_* secrets are set — see the note at
+# the bottom of this file.
 on:
   push:
     branches: [main]
@@ -28,9 +29,27 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: didactic-dashboard:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # A build that compiles is not the same as an image that runs: start the
+      # container and poll the API until it answers (or fail with its logs).
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 3000:3000 didactic-dashboard:ci
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:3000/api/hosts > /dev/null; then
+              echo "OK: container answers on :3000"
+              docker rm -f smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "FAIL: no answer on :3000 after 15s — container logs:"
+          docker logs smoke
+          exit 1
 
   # Optional CD: publish to Docker Hub on version tags.
   # Enable by adding repo secrets DOCKERHUB_USERNAME and DOCKERHUB_TOKEN

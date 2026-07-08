@@ -1,0 +1,6 @@
+# Everything for this app lives in its own namespace, so it can be
+# inspected (kubectl -n didactic-dashboard get all) or wiped in one go.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: didactic-dashboard

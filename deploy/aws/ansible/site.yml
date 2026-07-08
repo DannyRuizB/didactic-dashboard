@@ -1,0 +1,79 @@
+---
+# Play 1 — harden the fresh Debian instance.
+# Connects as the AMI user "admin" (set in the inventory, not via -u: the
+# ssh_hardening lockout guard checks {{ ansible_user }}'s authorized_keys,
+# so the variable must be defined). Role order matters: admin_user must run
+# before ssh_hardening so the guard can find an installed key.
+- name: Harden the Debian host
+  hosts: dashboard
+  become: true
+  gather_facts: false # host may still be booting — wait first, gather later
+
+  pre_tasks:
+    - name: Wait for SSH to come up
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+  roles:
+    - admin_user
+    - ssh_hardening
+    - ufw
+    - fail2ban
+    - unattended_upgrades
+
+# Play 2 — deploy the dashboard container.
+# Still connects as "admin": the hardening roles never touch that account and
+# ssh_port stays 22, so the same connection settings keep working (confirmed
+# idempotent-safe on repeat runs).
+- name: Deploy the dashboard container
+  hosts: dashboard
+  become: true
+
+  tasks:
+    - name: Install Docker and the Python SDK from Debian repos
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - python3-docker
+        state: present
+
+    - name: Enable and start Docker
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Run the dashboard container
+      community.docker.docker_container:
+        name: "{{ app_container_name }}"
+        image: "{{ app_image }}:{{ app_tag }}"
+        state: started
+        restart_policy: unless-stopped
+        published_ports:
+          - "{{ app_published_port }}:{{ app_container_port }}"
+        volumes:
+          # Named volume: the SQLite database survives container replacement.
+          - "{{ app_data_volume }}:{{ app_data_dir }}"
+        env:
+          DB_PATH: "{{ app_db_path }}"
+
+    - name: Wait for the app to answer its health endpoint
+      ansible.builtin.uri:
+        url: "http://localhost:{{ app_published_port }}/api/hosts"
+        status_code: 200
+      register: health
+      until: health.status == 200
+      retries: 12
+      delay: 5

@@ -1,0 +1,29 @@
+---
+# --- Hardening roles (vendor/debian-hardening-ansible) ---
+
+# Keep 22 — changing it mid-run creates documented lockout windows (ufw allows
+# only the new port while sshd still listens on the old one until the play-end
+# handler). The security group + fail2ban already protect it.
+ssh_port: 22
+
+# Extra sudo user created besides the AMI's "admin".
+admin_user_name: "danny"
+# lookup() runs on the control node — this is the same key Terraform injects
+# into the instance, so one keypair covers both accounts.
+admin_user_pubkey: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
+
+# The security group is the real perimeter: Docker's iptables rules bypass UFW
+# for published ports anyway. Listing 80/tcp here keeps the intent explicit.
+ufw_extra_ports:
+  - "80/tcp"
+
+# --- App container (play 2) ---
+
+app_container_name: didactic-dashboard
+app_image: dannyruizb/didactic-dashboard
+app_tag: "0.6.0" # pinned for reproducibility — bump deliberately, not via :latest
+app_published_port: 80
+app_container_port: 3000
+app_data_volume: didactic-data
+app_data_dir: /app/data
+app_db_path: /app/data/dashboard.db
