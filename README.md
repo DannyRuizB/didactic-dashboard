@@ -15,7 +15,7 @@
 
 Simple self-hosted monitoring dashboard. Add a host by IP and watch its status in real time. Docker-ready, built for learning.
 
-> Stable — v0.6.0 is the current release.
+> Stable — v0.7.0 is the current release.
 
 ## Screenshots
 
@@ -120,8 +120,9 @@ Prerequisites, per-step manual equivalent, costs and teardown in
 
 ## Features
 
-### v0.6.0 (current)
-- **Auto-discovery from a Proxmox node**: tick *Proxmox node* when adding an SSH host and a `discover` button shows up on its card. Clicking it lists every VM and LXC container on that Proxmox node — without installing anything inside the guests — by cross-referencing `qm list` / `pct list` / `qm config` / `pct config` with the Proxmox node's ARP cache (`ip neigh show`) to resolve each guest's IP. Tick the ones you want, type a shared SSH user, and they're adopted as monitored hosts with a `via <parent>` tag on their card.
+### v0.7.0 (current)
+- **Prometheus metrics endpoint**: `GET /metrics` exposes the standard Node.js process metrics plus custom `didactic_*` series — monitored hosts by check type, per-host up/down, probe duration histogram, alerts fired and currently active alerts. Point a Prometheus scrape job at it and graph the dashboard in Grafana. See [Metrics (Prometheus)](#metrics-prometheus).
+- **Auto-discovery from a Proxmox node** (v0.6.0): tick *Proxmox node* when adding an SSH host and a `discover` button shows up on its card. Clicking it lists every VM and LXC container on that Proxmox node — without installing anything inside the guests — by cross-referencing `qm list` / `pct list` / `qm config` / `pct config` with the Proxmox node's ARP cache (`ip neigh show`) to resolve each guest's IP. Tick the ones you want, type a shared SSH user, and they're adopted as monitored hosts with a `via <parent>` tag on their card.
 - **Per-host threshold overrides** (v0.5.2): every SSH host can override the global CPU / RAM / disk thresholds from the UI. Set them at add-time in the `+ thresholds` block, or click `edit` on any card to change them later. A small `th` badge shows up on cards with custom thresholds. Leave a field empty to fall back to the global env var.
 - **Edit host**: every card now has an `edit` button so you can rename a host, change its port / ssh user / monitored services, and tune its alert thresholds without deleting and re-creating it.
 - **Email (SMTP) notifications** (v0.5.1): set `SMTP_HOST` + `ALERT_EMAIL_TO` (plus the usual auth) and every alert transition is sent as an email with auto-built subject and HTML / plain-text body. README has a step-by-step for Gmail (app password) and notes for other providers.
@@ -161,7 +162,7 @@ flowchart LR
     subgraph Container["Single Docker container · Node.js process"]
         direction TB
         Express["Express HTTP server<br/>port 3000"]
-        API["REST API<br/>/api/hosts · /api/alerts<br/>/api/hosts/:id/{history,details,discover,adopt}"]
+        API["REST API<br/>/api/hosts · /api/alerts · /metrics<br/>/api/hosts/:id/{history,details,discover,adopt}"]
         Static["Static files<br/>src/public/"]
         Scheduler["Probe scheduler<br/>setInterval(PING_INTERVAL)"]
         Probes["Probes<br/>ICMP · TCP · SSH metrics · Proxmox discover"]
@@ -212,6 +213,7 @@ flowchart LR
 - [x] v0.5.1 — Email (SMTP) notifications
 - [x] v0.5.2 — Per-host threshold overrides from the UI
 - [x] v0.6.0 — Proxmox auto-discovery (parent → VMs / LXC adoption)
+- [x] v0.7.0 — Prometheus `/metrics` endpoint (process + custom metrics)
 
 ## SSH check setup
 
@@ -282,6 +284,32 @@ Environment variables (set in `docker-compose.yml`):
 | `SMTP_SECURE`        | `false`                   | `true` for implicit TLS (port 465), `false` otherwise |
 | `ALERT_EMAIL_FROM`   | (= `SMTP_USER`)           | `From:` header for outgoing alerts                   |
 | `ALERT_EMAIL_TO`     | (unset)                   | Destination address (enables the email channel)      |
+
+## Metrics (Prometheus)
+
+`GET /metrics` serves the standard Prometheus text exposition: the default Node.js process metrics (`process_cpu_seconds_total`, `process_resident_memory_bytes`, `nodejs_eventloop_lag_seconds`...) plus these custom series:
+
+| Metric                            | Type      | Labels                 | Meaning                                        |
+|-----------------------------------|-----------|------------------------|------------------------------------------------|
+| `didactic_monitored_hosts`        | gauge     | `check_type`           | Hosts currently registered, by probe type      |
+| `didactic_host_up`                | gauge     | `host`, `check_type`   | Last probe result per host (1 = up, 0 = down)  |
+| `didactic_probe_duration_seconds` | histogram | `check_type`, `result` | Wall-clock duration of each host probe         |
+| `didactic_alerts_fired_total`     | counter   | `metric`, `level`      | Alerts fired since the process started         |
+| `didactic_active_alerts`          | gauge     | `metric`, `level`      | Alerts firing right now                        |
+
+A minimal scrape job:
+
+```yaml
+scrape_configs:
+  - job_name: didactic-dashboard
+    static_configs:
+      - targets: ['localhost:3000']
+```
+
+Two things worth knowing:
+
+- The gauges are recomputed from SQLite at scrape time, so they survive restarts and deleted hosts drop off on the next scrape. `didactic_alerts_fired_total` is a counter and resets when the process restarts — that's normal Prometheus semantics, use `rate()` / `increase()` in queries.
+- The endpoint is unauthenticated (like the rest of the API) and `didactic_host_up` labels include your host names/IPs, so it returns `404` in demo mode. Self-hosted, keep it inside your network like the dashboard itself.
 
 ## Alerts
 

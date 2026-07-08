@@ -5,9 +5,12 @@ kind: Service
 metadata:
   name: didactic-dashboard
   namespace: didactic-dashboard
+  labels:
+    app: didactic-dashboard # the ServiceMonitor in deploy/k8s/monitoring selects on this
 spec:
   selector:
     app: didactic-dashboard
   ports:
-    - port: 80
+    - name: http # ServiceMonitors reference ports by name, so it needs one
+      port: 80
       targetPort: 3000
