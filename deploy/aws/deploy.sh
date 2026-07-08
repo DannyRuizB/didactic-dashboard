@@ -18,7 +18,7 @@ cd "$SCRIPT_DIR"
 HARDENING_REPO="https://github.com/DannyRuizB/debian-hardening-ansible"
 # Pinned commit of the hardening roles — they run as root on the host, so
 # upgrades must be deliberate (bump the ref and test), same policy as app_tag.
-HARDENING_REF="2d71745427a82ba3db5a3d063ba9375615b72ed7"
+HARDENING_REF="20aadf9f287bde2ca4d2ac76ee0ffa42e349efdc"
 VENDOR_DIR="ansible/vendor/debian-hardening-ansible"
 
 # --- 1. Sanity checks --------------------------------------------------------
