@@ -103,6 +103,10 @@ curl -H "Host: dashboard.local" http://localhost/
 Single replica by design: SQLite sits on a ReadWriteOnce volume, so the
 Deployment uses the `Recreate` strategy instead of rolling updates.
 
+Optional but recommended: a full **Prometheus + Grafana** setup for the same
+cluster (kube-prometheus-stack, scrape config, alert rules and a provisioned
+dashboard) lives in [`deploy/k8s/monitoring/`](deploy/k8s/monitoring/).
+
 ### Option D — AWS (Terraform + Ansible)
 
 IaC deployment to a single hardened EC2 VM lives in [`deploy/aws/`](deploy/aws/):
@@ -305,6 +309,8 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:3000']
 ```
+
+Running on Kubernetes? [`deploy/k8s/monitoring/`](deploy/k8s/monitoring/) ships the whole thing — kube-prometheus-stack, a ServiceMonitor for the app, alert rules and a provisioned Grafana dashboard.
 
 Two things worth knowing:
 
