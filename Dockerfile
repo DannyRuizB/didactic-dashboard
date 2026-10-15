@@ -9,7 +9,11 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --omit=dev
+# --ignore-scripts: better-sqlite3 13 ships its prebuilt binaries inside the
+# package but has no install script, so npm falls back to an implicit
+# `node-gyp rebuild`, which needs python3 and make (not in node:24-slim) and
+# fails the build. Nothing here needs to compile: the prebuilt binary loads.
+RUN npm install --omit=dev --ignore-scripts
 
 COPY src/ ./src/
 
