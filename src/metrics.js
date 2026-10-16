@@ -6,14 +6,18 @@
 // call builds its own Registry (registers: [register], never the global one),
 // so tests get isolated, collision-free instances.
 //
-// The three state gauges are recomputed inside collect(), which prom-client
+// The three state gauges are recomputed inside collect(), which the client
 // runs at scrape time — SQLite is the source of truth, so instead of
 // sprinkling inc/dec calls across the add/delete/adopt/resolve paths we just
 // re-read it on every scrape. Deleted hosts and cleared alerts drop off on
 // the very next scrape, no stale series. better-sqlite3 is synchronous, so
 // collect() can be a plain function.
 
-const client = require('prom-client');
+// @prometheus-io/client is prom-client under the Prometheus org: prom-client
+// 15.1.3 is deprecated in its favour. Same API; the exposition of every metric
+// below and of the default ones is unchanged (the new client adds two
+// event-loop utilization metrics and drops nothing).
+const client = require('@prometheus-io/client');
 
 function createMetrics(listHosts, listActiveAlerts) {
   const register = new client.Registry();
