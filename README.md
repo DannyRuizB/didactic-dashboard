@@ -6,7 +6,7 @@
 [![lint](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/lint.yml/badge.svg)](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/lint.yml)
 [![docker](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/docker.yml/badge.svg)](https://github.com/DannyRuizB/didactic-dashboard/actions/workflows/docker.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Node](https://img.shields.io/badge/node-20-3c873a.svg)
+![Node](https://img.shields.io/badge/node-24-3c873a.svg)
 [![Docker Hub](https://img.shields.io/docker/v/dannyruizb/didactic-dashboard?label=docker%20hub&logo=docker&sort=semver)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dannyruizb/didactic-dashboard?logo=docker)](https://hub.docker.com/r/dannyruizb/didactic-dashboard)
 ![Image size](https://img.shields.io/docker/image-size/dannyruizb/didactic-dashboard/latest)
